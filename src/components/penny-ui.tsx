@@ -159,20 +159,22 @@ export function ToggleChip({
 type PillButtonProps = PropsWithChildren<{
   tone?: 'primary' | 'quiet';
   onPress?: () => void;
+  disabled?: boolean;
 }>;
 
-export function PillButton({ children, tone = 'quiet', onPress }: PillButtonProps) {
+export function PillButton({ children, tone = 'quiet', onPress, disabled }: PillButtonProps) {
   const theme = useTheme();
   const isPrimary = tone === 'primary';
 
   return (
     <Pressable
-      onPress={onPress}
+      disabled={disabled}
+      onPress={disabled ? undefined : onPress}
       style={({ pressed }) => [
         styles.pillButton,
         {
           backgroundColor: isPrimary ? theme.primary : theme.backgroundSelected,
-          opacity: pressed ? 0.75 : 1,
+          opacity: disabled ? 0.55 : pressed ? 0.75 : 1,
         },
       ]}>
       <ThemedText

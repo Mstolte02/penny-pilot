@@ -2,6 +2,7 @@ import { Link } from 'expo-router';
 import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BankSyncCard } from '@/components/bank-sync-card';
 import { Card, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -86,6 +87,8 @@ export default function HomeScreen() {
               </Link>
             </View>
           </Card>
+
+          <BankSyncCard />
 
           <Card>
             <ThemedText type="smallBold">First home</ThemedText>

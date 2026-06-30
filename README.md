@@ -1,0 +1,67 @@
+# Penny Pilot
+
+Penny Pilot is a friendly personal finance app prototype built with Expo. The current app shell includes onboarding, budgeting, transaction review, goals, mock service boundaries, mascot assets, and a Supabase schema draft.
+
+## Get started
+
+1. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+2. Copy environment defaults:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Keep `EXPO_PUBLIC_DATA_SOURCE=mock` until a real Supabase project is ready.
+
+3. Start the app:
+
+   ```bash
+   npm run web
+   ```
+
+## Data Modes
+
+The app uses a switchable service registry in `src/services/index.ts`.
+
+- `mock`: uses in-app prototype data and mock services.
+- `supabase`: uses Supabase client services and backend function stubs.
+
+To switch to Supabase mode:
+
+```bash
+EXPO_PUBLIC_DATA_SOURCE=supabase
+EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+```
+
+Plaid and AI secrets must live in backend functions, never in the Expo app.
+
+## Useful Files
+
+- Product brief: `docs/penny-pilot-v1-brief.md`
+- Technical architecture: `docs/technical-architecture.md`
+- Domain model: `src/domain/finance.ts`
+- Service contracts: `src/services/contracts.ts`
+- Mock services: `src/services/mock-finance-service.ts`
+- Supabase services: `src/services/supabase-services.ts`
+- Supabase schema draft: `supabase/migrations/0001_initial_schema.sql`
+
+## Checks
+
+```bash
+npm run lint
+npx tsc --noEmit
+```
+
+## Near-Term Build Path
+
+1. Create Supabase project and apply the schema.
+2. Configure Apple and Google auth.
+3. Implement Plaid Edge Functions.
+4. Swap selected screens from sample data to `financeDataService`.
+5. Add Expo development build for native Plaid Link.

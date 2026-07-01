@@ -112,7 +112,7 @@ const mockBudget: Budget & { lines: BudgetLine[] } = {
   }),
 };
 
-const mockTransactions: Transaction[] = reviewTransactions.map((transaction) => ({
+let mockTransactions: Transaction[] = reviewTransactions.map((transaction) => ({
   id: transaction.id,
   userId: mockUserId,
   accountId: 'acct_checking',
@@ -197,7 +197,7 @@ export const mockFinanceDataService: FinanceDataService = {
     return mockCategories;
   },
   async listTransactionsNeedingReview() {
-    return mockTransactions;
+    return mockTransactions.filter((transaction) => transaction.needsReview);
   },
   async listBudgets() {
     return [mockBudget];
@@ -233,10 +233,32 @@ export const mockCategorizationService: CategorizationService = {
       rationale: 'Mock AI matched the merchant against your Food category and Coffee subcategory.',
     };
   },
-  async confirmCategory() {
+  async confirmCategory(suggestion) {
+    mockTransactions = mockTransactions.map((transaction) =>
+      transaction.id === suggestion.transactionId
+        ? {
+            ...transaction,
+            needsReview: false,
+            categoryId: suggestion.categoryId,
+            subcategoryId: suggestion.subcategoryId,
+            categoryConfidence: suggestion.confidence,
+          }
+        : transaction
+    );
     return null;
   },
-  async overrideCategory() {
+  async overrideCategory(input) {
+    mockTransactions = mockTransactions.map((transaction) =>
+      transaction.id === input.transactionId
+        ? {
+            ...transaction,
+            needsReview: false,
+            categoryId: input.categoryId,
+            subcategoryId: input.subcategoryId,
+            categoryConfidence: 'high',
+          }
+        : transaction
+    );
     return null;
   },
 };

@@ -68,6 +68,247 @@ function mapProfile(row: Record<string, unknown>): UserProfile {
   };
 }
 
+const starterCategoryTemplates: {
+  name: string;
+  kind: Category['kind'];
+  subcategories: string[];
+}[] = [
+  { name: 'Housing', kind: 'fixed', subcategories: ['Rent', 'Utilities', 'Internet', 'Repairs'] },
+  {
+    name: 'Food',
+    kind: 'variable',
+    subcategories: ['Groceries', 'Dining out', 'Coffee'],
+  },
+  {
+    name: 'Transportation',
+    kind: 'variable',
+    subcategories: ['Gas', 'Car payment', 'Insurance', 'Maintenance'],
+  },
+  {
+    name: 'Shopping',
+    kind: 'variable',
+    subcategories: ['Household', 'Clothing', 'Personal care'],
+  },
+  {
+    name: 'Goals',
+    kind: 'savings',
+    subcategories: ['Home fund', 'Car fund', 'Loan payoff'],
+  },
+];
+
+function mapCategory(row: Record<string, unknown>): Category & { subcategories: Subcategory[] } {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    name: row.name as string,
+    kind: row.kind as Category['kind'],
+    sortOrder: row.sort_order as number,
+    archivedAt: (row.archived_at as string | null) ?? null,
+    subcategories: ((row.subcategories as Record<string, unknown>[] | null) ?? []).map(
+      (subcategory) => ({
+        id: subcategory.id as string,
+        userId: subcategory.user_id as string,
+        categoryId: subcategory.category_id as string,
+        name: subcategory.name as string,
+        sortOrder: subcategory.sort_order as number,
+        archivedAt: (subcategory.archived_at as string | null) ?? null,
+      })
+    ),
+  };
+}
+
+function mapTransaction(row: Record<string, unknown>): Transaction {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    accountId: row.account_id as string,
+    providerTransactionId: (row.provider_transaction_id as string | null) ?? null,
+    date: row.date as string,
+    merchantName: row.merchant_name as string,
+    originalDescription: row.original_description as string,
+    amount: Number(row.amount),
+    kind: row.kind as Transaction['kind'],
+    categoryId: (row.category_id as string | null) ?? null,
+    subcategoryId: (row.subcategory_id as string | null) ?? null,
+    categoryConfidence: row.category_confidence as Transaction['categoryConfidence'],
+    needsReview: Boolean(row.needs_review),
+    pending: Boolean(row.pending),
+    excludedFromBudget: Boolean(row.excluded_from_budget),
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+  };
+}
+
+function normalizeMerchantName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function mapMerchantRule(row: Record<string, unknown>): MerchantRule {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    normalizedMerchant: row.normalized_merchant as string,
+    categoryId: row.category_id as string,
+    subcategoryId: (row.subcategory_id as string | null) ?? null,
+    confidence: row.confidence as MerchantRule['confidence'],
+    timesApplied: row.times_applied as number,
+    lastAppliedAt: (row.last_applied_at as string | null) ?? null,
+  };
+}
+
+async function getCurrentSupabaseUserId() {
+  const client = requireSupabase();
+  const { data, error } = await client.auth.getUser();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data.user) {
+    throw new Error('Sign in before reviewing transactions.');
+  }
+
+  return data.user.id;
+}
+
+async function markTransactionReviewed(input: {
+  transactionId: string;
+  categoryId: string;
+  subcategoryId: string | null;
+  confidence: Transaction['categoryConfidence'];
+  rememberMerchant: boolean;
+}) {
+  const client = requireSupabase();
+  const { data: transaction, error: fetchError } = await client
+    .from('transactions')
+    .select('id, user_id, merchant_name, normalized_merchant')
+    .eq('id', input.transactionId)
+    .single();
+
+  if (fetchError) {
+    throw fetchError;
+  }
+
+  const { error: updateError } = await client
+    .from('transactions')
+    .update({
+      category_id: input.categoryId,
+      subcategory_id: input.subcategoryId,
+      category_confidence: input.confidence,
+      needs_review: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.transactionId);
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  if (!input.rememberMerchant) {
+    return null;
+  }
+
+  const normalizedMerchant =
+    (transaction.normalized_merchant as string | null) ||
+    normalizeMerchantName(transaction.merchant_name as string);
+
+  const { data: existingRule, error: existingRuleError } = await client
+    .from('merchant_rules')
+    .select('*')
+    .eq('normalized_merchant', normalizedMerchant)
+    .maybeSingle();
+
+  if (existingRuleError) {
+    throw existingRuleError;
+  }
+
+  if (existingRule) {
+    const { data: updatedRule, error: ruleUpdateError } = await client
+      .from('merchant_rules')
+      .update({
+        category_id: input.categoryId,
+        subcategory_id: input.subcategoryId,
+        confidence: 'high',
+        times_applied: (existingRule.times_applied as number) + 1,
+        last_applied_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existingRule.id)
+      .select('*')
+      .single();
+
+    if (ruleUpdateError) {
+      throw ruleUpdateError;
+    }
+
+    return mapMerchantRule(updatedRule);
+  }
+
+  const { data: createdRule, error: ruleCreateError } = await client
+    .from('merchant_rules')
+    .insert({
+      user_id: transaction.user_id,
+      normalized_merchant: normalizedMerchant,
+      category_id: input.categoryId,
+      subcategory_id: input.subcategoryId,
+      confidence: 'high',
+      times_applied: 1,
+      last_applied_at: new Date().toISOString(),
+    })
+    .select('*')
+    .single();
+
+  if (ruleCreateError) {
+    throw ruleCreateError;
+  }
+
+  return mapMerchantRule(createdRule);
+}
+
+async function createStarterCategories() {
+  const client = requireSupabase();
+  const userId = await getCurrentSupabaseUserId();
+
+  const categoryRows = starterCategoryTemplates.map((category, index) => ({
+    user_id: userId,
+    name: category.name,
+    kind: category.kind,
+    sort_order: index,
+  }));
+
+  const { data: createdCategories, error: categoryError } = await client
+    .from('categories')
+    .insert(categoryRows)
+    .select('*');
+
+  if (categoryError) {
+    throw categoryError;
+  }
+
+  const subcategoryRows = (createdCategories ?? []).flatMap((category) => {
+    const template = starterCategoryTemplates.find((item) => item.name === category.name);
+    return (template?.subcategories ?? []).map((subcategory, index) => ({
+      user_id: userId,
+      category_id: category.id,
+      name: subcategory,
+      sort_order: index,
+    }));
+  });
+
+  if (subcategoryRows.length === 0) {
+    return;
+  }
+
+  const { error: subcategoryError } = await client.from('subcategories').insert(subcategoryRows);
+
+  if (subcategoryError) {
+    throw subcategoryError;
+  }
+}
+
 async function startOAuth(provider: 'apple' | 'google') {
   const client = requireSupabase();
   const redirectTo = Linking.createURL('auth/callback');
@@ -281,32 +522,31 @@ export const supabaseFinanceDataService: FinanceDataService = {
   },
   async listCategories() {
     const client = requireSupabase();
-    const { data, error } = await client
-      .from('categories')
-      .select('*, subcategories(*)')
-      .is('archived_at', null)
-      .order('sort_order');
+    const loadCategories = () =>
+      client
+        .from('categories')
+        .select('*, subcategories(*)')
+        .is('archived_at', null)
+        .order('sort_order');
+
+    let { data, error } = await loadCategories();
 
     if (error) {
       throw error;
     }
 
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      userId: row.user_id,
-      name: row.name,
-      kind: row.kind,
-      sortOrder: row.sort_order,
-      archivedAt: row.archived_at,
-      subcategories: (row.subcategories ?? []).map((subcategory: Record<string, unknown>) => ({
-        id: subcategory.id,
-        userId: subcategory.user_id,
-        categoryId: subcategory.category_id,
-        name: subcategory.name,
-        sortOrder: subcategory.sort_order,
-        archivedAt: subcategory.archived_at,
-      })),
-    })) as (Category & { subcategories: Subcategory[] })[];
+    if ((data ?? []).length === 0) {
+      await createStarterCategories();
+      const reloaded = await loadCategories();
+      data = reloaded.data;
+      error = reloaded.error;
+
+      if (error) {
+        throw error;
+      }
+    }
+
+    return (data ?? []).map(mapCategory);
   },
   async listTransactionsNeedingReview() {
     const client = requireSupabase();
@@ -320,25 +560,7 @@ export const supabaseFinanceDataService: FinanceDataService = {
       throw error;
     }
 
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      userId: row.user_id,
-      accountId: row.account_id,
-      providerTransactionId: row.provider_transaction_id,
-      date: row.date,
-      merchantName: row.merchant_name,
-      originalDescription: row.original_description,
-      amount: row.amount,
-      kind: row.kind,
-      categoryId: row.category_id,
-      subcategoryId: row.subcategory_id,
-      categoryConfidence: row.category_confidence,
-      needsReview: row.needs_review,
-      pending: row.pending,
-      excludedFromBudget: row.excluded_from_budget,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    })) as Transaction[];
+    return (data ?? []).map(mapTransaction);
   },
   async listBudgets() {
     const client = requireSupabase();
@@ -420,34 +642,64 @@ export const supabaseFinanceDataService: FinanceDataService = {
 
 export const supabaseCategorizationService: CategorizationService = {
   async suggestCategory(transaction): Promise<CategorizationSuggestion> {
-    const client = requireSupabase();
-    const { data, error } = await client.functions.invoke('categorize-transaction', {
-      body: { transactionId: transaction.id },
-    });
-    if (error) {
-      throw error;
+    const categories = await supabaseFinanceDataService.listCategories();
+    const firstVariableCategory =
+      categories.find((category) => category.kind === 'variable') ?? categories[0];
+
+    if (!firstVariableCategory) {
+      throw new Error('Add at least one category before reviewing transactions.');
     }
-    return data as CategorizationSuggestion;
+
+    const normalizedMerchant = normalizeMerchantName(transaction.merchantName);
+    const client = requireSupabase();
+    const { data: rule, error: ruleError } = await client
+      .from('merchant_rules')
+      .select('*')
+      .eq('normalized_merchant', normalizedMerchant)
+      .maybeSingle();
+
+    if (ruleError) {
+      throw ruleError;
+    }
+
+    if (rule) {
+      return {
+        transactionId: transaction.id,
+        categoryId: rule.category_id,
+        subcategoryId: rule.subcategory_id,
+        confidence: 'high',
+        source: 'merchant-rule',
+        rationale: 'Matched a merchant rule you previously approved.',
+      } as CategorizationSuggestion;
+    }
+
+    return {
+      transactionId: transaction.id,
+      categoryId: transaction.categoryId ?? firstVariableCategory.id,
+      subcategoryId:
+        transaction.subcategoryId ?? firstVariableCategory.subcategories[0]?.id ?? null,
+      confidence: transaction.categoryConfidence === 'none' ? 'low' : transaction.categoryConfidence,
+      source: 'user-default',
+      rationale: 'Starter guess until Penny has enough merchant history for this user.',
+    };
   },
   async confirmCategory(suggestion): Promise<MerchantRule | null> {
-    const client = requireSupabase();
-    const { data, error } = await client.functions.invoke('confirm-category', {
-      body: suggestion,
+    return markTransactionReviewed({
+      transactionId: suggestion.transactionId,
+      categoryId: suggestion.categoryId,
+      subcategoryId: suggestion.subcategoryId,
+      confidence: suggestion.confidence === 'none' ? 'medium' : suggestion.confidence,
+      rememberMerchant: true,
     });
-    if (error) {
-      throw error;
-    }
-    return data as MerchantRule | null;
   },
   async overrideCategory(input): Promise<MerchantRule | null> {
-    const client = requireSupabase();
-    const { data, error } = await client.functions.invoke('override-category', {
-      body: input,
+    return markTransactionReviewed({
+      transactionId: input.transactionId,
+      categoryId: input.categoryId,
+      subcategoryId: input.subcategoryId,
+      confidence: 'high',
+      rememberMerchant: input.rememberMerchant,
     });
-    if (error) {
-      throw error;
-    }
-    return data as MerchantRule | null;
   },
 };
 

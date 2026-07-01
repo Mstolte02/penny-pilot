@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "3UQC49PUK9.com.pennypilot.finance",
+        "paths": [
+          "/plaid/oauth",
+          "/plaid/oauth/*"
+        ]
+      }
+    ]
+  }
+}

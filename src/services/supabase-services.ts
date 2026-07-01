@@ -36,6 +36,25 @@ function requireSupabase() {
   return supabase;
 }
 
+async function getFunctionErrorMessage(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const response = (error as { context?: Response }).context;
+  if (response) {
+    try {
+      const payload = (await response.clone().json()) as { error?: unknown; message?: unknown };
+      if (typeof payload.error === 'string') return payload.error;
+      if (typeof payload.message === 'string') return payload.message;
+    } catch {
+      // Supabase function errors do not always include a JSON body.
+    }
+  }
+
+  return error.message;
+}
+
 function mapProfile(row: Record<string, unknown>): UserProfile {
   return {
     id: row.id as string,
@@ -173,7 +192,7 @@ export const supabaseBankSyncService: BankSyncService = {
     const client = requireSupabase();
     const { data, error } = await client.functions.invoke('plaid-create-link-token');
     if (error) {
-      throw error;
+      throw new Error(await getFunctionErrorMessage(error, 'Could not create Plaid Link token.'));
     }
     return data as { linkToken: string };
   },
@@ -183,7 +202,7 @@ export const supabaseBankSyncService: BankSyncService = {
       body: { publicToken },
     });
     if (error) {
-      throw error;
+      throw new Error(await getFunctionErrorMessage(error, 'Could not finish bank connection.'));
     }
     return data as BankInstitution;
   },
@@ -193,7 +212,7 @@ export const supabaseBankSyncService: BankSyncService = {
       body: { institutionId },
     });
     if (error) {
-      throw error;
+      throw new Error(await getFunctionErrorMessage(error, 'Could not sync transactions.'));
     }
     return data as { added: number; modified: number; removed: number };
   },

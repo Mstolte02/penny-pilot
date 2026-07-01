@@ -11,8 +11,6 @@ Deno.serve(async (req) => {
     const products = (Deno.env.get('PLAID_PRODUCTS') ?? 'transactions').split(',');
     const countryCodes = (Deno.env.get('PLAID_COUNTRY_CODES') ?? 'US').split(',');
     const redirectUri = Deno.env.get('PLAID_REDIRECT_URI');
-    const androidPackageName = Deno.env.get('PLAID_ANDROID_PACKAGE_NAME');
-
     const data = await plaidFetch<{ link_token: string; expiration: string; request_id: string }>(
       '/link/token/create',
       {
@@ -25,7 +23,6 @@ Deno.serve(async (req) => {
           email_address: user.email,
         },
         ...(redirectUri ? { redirect_uri: redirectUri } : {}),
-        ...(androidPackageName ? { android_package_name: androidPackageName } : {}),
       }
     );
 

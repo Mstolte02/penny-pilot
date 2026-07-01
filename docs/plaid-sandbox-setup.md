@@ -10,7 +10,7 @@ Add these app identifiers in Plaid when you are ready to test native OAuth flows
 
 - iOS bundle identifier: `com.pennypilot.finance`
 - Android package name: `com.pennypilot.finance`
-- OAuth redirect URI: `https://pennypilot.app/plaid/oauth`
+- OAuth redirect URI: `https://penny-pilot.net/plaid/oauth`
 
 Plaid OAuth redirect URIs must use HTTPS. On iOS/React Native this HTTPS URL must
 be configured as a Universal Link for the app. Custom URI schemes such as
@@ -34,7 +34,7 @@ supabase secrets set PLAID_SECRET=your_sandbox_secret
 supabase secrets set PLAID_ENV=sandbox
 supabase secrets set PLAID_PRODUCTS=transactions
 supabase secrets set PLAID_COUNTRY_CODES=US
-supabase secrets set PLAID_REDIRECT_URI=https://pennypilot.app/plaid/oauth
+supabase secrets set PLAID_REDIRECT_URI=https://penny-pilot.net/plaid/oauth
 supabase secrets set PLAID_ANDROID_PACKAGE_NAME=com.pennypilot.finance
 ```
 

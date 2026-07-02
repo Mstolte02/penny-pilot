@@ -1,6 +1,6 @@
 # Penny Pilot
 
-Penny Pilot is a friendly personal finance app prototype built with Expo. The current app shell includes onboarding, budgeting, transaction review, goals, mock service boundaries, mascot assets, and a Supabase schema draft.
+Penny Pilot is a friendly personal finance app prototype built with Expo. The current app shell includes onboarding, budgeting, transaction review, goals, transaction setup choices, mock service boundaries, mascot assets, and a Supabase schema draft.
 
 ## Get started
 
@@ -40,6 +40,15 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
 
 Plaid and AI secrets must live in backend functions, never in the Expo app.
+
+## Transaction Setup
+
+Penny Pilot supports two intended transaction paths:
+
+- Bank sync: connect an account through Plaid for automatic transaction updates.
+- Private bank export: download CSV/XLS/XLSX transactions from a bank or credit card website and import them without linking a live account.
+
+Both paths should feed the same review queue so users can approve or correct Penny's category guesses.
 
 ## Useful Files
 

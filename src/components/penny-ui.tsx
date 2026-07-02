@@ -238,7 +238,7 @@ export function SegmentedToggle<T extends string | number>({
   );
 }
 
-type PillTone = 'cat' | 'good' | 'bad' | 'muted';
+type PillTone = 'cat' | 'good' | 'bad' | 'muted' | 'info';
 
 /** Small status pill (finance_tracker's .pill). */
 export function Pill({ label, tone = 'cat' }: { label: string; tone?: PillTone }) {
@@ -248,6 +248,7 @@ export function Pill({ label, tone = 'cat' }: { label: string; tone?: PillTone }
     good: { bg: '#E7F6EC', fg: theme.success },
     bad: { bg: '#FBEAE8', fg: theme.danger },
     muted: { bg: theme.backgroundSelected, fg: theme.textSecondary },
+    info: { bg: '#E4F1FB', fg: theme.accent },
   };
   const { bg, fg } = palette[tone];
 

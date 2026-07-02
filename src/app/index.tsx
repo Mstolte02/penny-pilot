@@ -22,9 +22,11 @@ import {
   mean,
   monthlyIncome,
   monthlySpend,
+  safeToSpendToday,
   summarizeBudget,
   uniqueMonths,
 } from '@/domain/mobile-finance';
+import { useTheme } from '@/hooks/use-theme';
 
 const SEGMENTS = [
   { label: 'Overview', value: 'overview' },
@@ -40,6 +42,7 @@ function moneyK(value: number) {
 }
 
 export default function TodayScreen() {
+  const theme = useTheme();
   const [active, setActive] = useState('overview');
 
   const model = useMemo(() => {
@@ -49,6 +52,7 @@ export default function TodayScreen() {
     const spends = monthlySpend(mobileTransactions);
     const income = monthlyIncome(mobileTransactions);
     const net = actualMonthlyNet(mobileTransactions);
+    const safe = safeToSpendToday(mobileBudgetPlan, mobileTransactions);
 
     const latestSpendRow = spends.find((row) => row.month === latest);
     const latestSpend = latestSpendRow?.total ?? 0;
@@ -82,31 +86,60 @@ export default function TodayScreen() {
       .sort((a, b) => b.value - a.value)
       .slice(0, 5);
 
-    return { budget, latest, latestSpend, latestIncome, latestNet, spendSeries, netSeries, categories };
+    return { budget, latest, latestIncome, latestSpend, latestNet, safe, spendSeries, netSeries, categories };
   }, []);
 
-  const budgetProgress =
-    model.budget.totalExpenses > 0 ? model.latestSpend / model.budget.totalExpenses : 0;
-  const overPlan = budgetProgress > 1;
-  const left = Math.max(0, model.budget.totalExpenses - model.latestSpend);
+  const { safe } = model;
+  const status =
+    safe.perDay <= 0 ? 'over' : safe.perDay < safe.dailyTarget ? 'tight' : 'good';
+  const statusColor =
+    status === 'over' ? theme.danger : status === 'tight' ? theme.warning : theme.success;
+  const statusMascot =
+    status === 'over' ? 'concerned' : status === 'tight' ? 'thinking' : 'onTrack';
+  const statusNote =
+    status === 'over'
+      ? 'Over your flexible plan for this month.'
+      : status === 'tight'
+        ? 'A little tight — spend intentionally.'
+        : 'You have room to spend today.';
+  const flexUsed = safe.flexBudget > 0 ? safe.flexSpent / safe.flexBudget : 0;
 
   return (
     <Screen
       eyebrow="Penny Pilot"
       title="Today"
-      mascot={<PennyBadge expression={overPlan ? 'concerned' : 'onTrack'} />}
+      mascot={<PennyBadge expression={statusMascot} />}
       segments={SEGMENTS}
       active={active}
       onSelect={setActive}>
       {active === 'overview' ? (
         <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          <Card style={styles.heroCard}>
+            <View style={styles.rowBetween}>
+              <ThemedText type="smallBold" themeColor="accent">
+                Safe to spend today
+              </ThemedText>
+              <Pill label={`~${formatMoney(safe.dailyTarget)}/day plan`} tone="info" />
+            </View>
+            <ThemedText
+              style={[styles.heroValue, { color: statusColor }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}>
+              {formatMoney(Math.max(0, safe.perDay))}
+            </ThemedText>
+            <ThemedText type="smallBold" style={{ color: statusColor }}>
+              {statusNote}
+            </ThemedText>
+            <ProgressBar value={flexUsed} />
+            <ThemedText type="small" themeColor="textSecondary">
+              {formatMoney(Math.max(0, safe.remaining))} left of your {formatMoney(safe.flexBudget)}{' '}
+              flexible budget · {safe.daysLeft} {safe.daysLeft === 1 ? 'day' : 'days'} left in{' '}
+              {shortMonth(safe.month)}.
+            </ThemedText>
+          </Card>
+
           <View style={styles.kpiGrid}>
-            <Stat
-              label="Take-home (plan)"
-              value={formatMoney(model.budget.monthlyIncome)}
-              delta="planned income"
-              style={styles.kpiTile}
-            />
             <Stat
               label={`Money in · ${shortMonth(model.latest)}`}
               value={formatMoney(model.latestIncome)}
@@ -115,37 +148,20 @@ export default function TodayScreen() {
               style={styles.kpiTile}
             />
             <Stat
-              label={`Money out · ${shortMonth(model.latest)}`}
-              value={formatMoney(model.latestSpend)}
-              delta="total spending"
-              style={styles.kpiTile}
-            />
-            <Stat
               label={`Net · ${shortMonth(model.latest)}`}
               value={formatMoney(model.latestNet)}
-              delta={model.latestNet >= 0 ? 'left over' : 'overspent'}
+              delta={model.latestNet >= 0 ? 'saved' : 'overspent'}
               trend={model.latestNet >= 0 ? 'up' : 'down'}
               style={styles.kpiTile}
             />
           </View>
 
           <Card>
-            <View style={styles.rowBetween}>
-              <ThemedText type="smallBold">Budget used · {shortMonth(model.latest)}</ThemedText>
-              <Pill label={overPlan ? 'Over plan' : 'On track'} tone={overPlan ? 'bad' : 'good'} />
-            </View>
-            <ProgressBar value={budgetProgress} />
-            <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(left)} left of {formatMoney(model.budget.totalExpenses)} planned expenses.
-            </ThemedText>
-          </Card>
-
-          <Card>
             <ThemedText type="smallBold">Net saved per month</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Income minus spending, last 6 months.
+              Green months you saved, red months you dipped in.
             </ThemedText>
-            <TrendBars data={model.netSeries} valueLabel={moneyK} />
+            <TrendBars data={model.netSeries} valueLabel={moneyK} signed />
           </Card>
 
           <BankSyncCard />
@@ -182,6 +198,17 @@ const styles = StyleSheet.create({
   body: {
     gap: Spacing.three,
     paddingBottom: PANEL_BOTTOM_INSET,
+  },
+  heroCard: {
+    borderColor: '#5DA9E9',
+    backgroundColor: '#EAF4FD',
+    gap: Spacing.two,
+  },
+  heroValue: {
+    fontSize: 44,
+    lineHeight: 48,
+    fontWeight: 800,
+    letterSpacing: -1,
   },
   kpiGrid: {
     flexDirection: 'row',

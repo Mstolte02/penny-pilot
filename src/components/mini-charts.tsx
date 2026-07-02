@@ -13,6 +13,8 @@ type TrendBarsProps = {
   data: TrendPoint[];
   valueLabel?: (value: number) => string;
   height?: number;
+  /** Color bars by sign (green when >= 0, red when negative) instead of accent/primary. */
+  signed?: boolean;
 };
 
 /**
@@ -20,7 +22,7 @@ type TrendBarsProps = {
  * smallest value) instead of 0, so month-to-month differences are actually visible —
  * that's the whole point of a trend chart. The latest bar is highlighted.
  */
-export function TrendBars({ data, valueLabel, height = 176 }: TrendBarsProps) {
+export function TrendBars({ data, valueLabel, height = 176, signed }: TrendBarsProps) {
   const theme = useTheme();
   const values = data.map((point) => point.value);
   const max = Math.max(...values, 1);
@@ -35,6 +37,13 @@ export function TrendBars({ data, valueLabel, height = 176 }: TrendBarsProps) {
       {data.map((point, index) => {
         const barHeight = Math.max(8, ((point.value - base) / span) * barMax);
         const isLast = index === data.length - 1;
+        const color = signed
+          ? point.value >= 0
+            ? theme.success
+            : theme.danger
+          : isLast
+            ? theme.primary
+            : theme.accent;
 
         return (
           <View key={`${point.label}-${index}`} style={styles.trendColumn}>
@@ -43,12 +52,7 @@ export function TrendBars({ data, valueLabel, height = 176 }: TrendBarsProps) {
                 {valueLabel(point.value)}
               </ThemedText>
             ) : null}
-            <View
-              style={[
-                styles.trendBar,
-                { height: barHeight, backgroundColor: isLast ? theme.primary : theme.accent },
-              ]}
-            />
+            <View style={[styles.trendBar, { height: barHeight, backgroundColor: color }]} />
             <ThemedText numberOfLines={1} themeColor="textSecondary" style={styles.trendLabel}>
               {point.label}
             </ThemedText>

@@ -107,6 +107,82 @@ export function monthKey(date: string) {
   return date.slice(0, 7);
 }
 
+export function daysInMonthOf(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number);
+
+  return new Date(year, monthNumber, 0).getDate();
+}
+
+export type SafeToSpend = {
+  month: string;
+  flexBudget: number;
+  flexSpent: number;
+  remaining: number;
+  daysLeft: number;
+  perDay: number;
+  dailyTarget: number;
+};
+
+/**
+ * "Safe to spend today" = the flexible (non-fixed) budget you have left this month,
+ * spread across the days remaining. Fixed obligations (rent, insurance, loans) are
+ * excluded on both sides so the daily number reflects only discretionary money.
+ *
+ * Anchored to the real current month/day: early in the month you see close to the full
+ * daily allowance, and it draws down as real spending lands. `now` is injectable for tests.
+ */
+export function safeToSpendToday(
+  plan: BudgetPlan,
+  transactions: MobileTransaction[],
+  now: Date = new Date()
+): SafeToSpend {
+  const budget = summarizeBudget(plan, transactions);
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  // Flexible = variable budget lines only. Measure actual flexible spend directly from the
+  // transactions that match those lines (fixed bills are excluded and may not all be logged).
+  const variablePairs: [string, string][] = [];
+  for (const section of plan.sections) {
+    for (const line of section.lines) {
+      if (line.type !== 'variable') continue;
+      if (line.match?.length) {
+        variablePairs.push(...line.match);
+      } else {
+        variablePairs.push([section.title, line.name]);
+      }
+    }
+  }
+  const isFlexible = (transaction: MobileTransaction) => {
+    if (transaction.type !== 'expense') return false;
+    const sub = transaction.subcategory ?? 'Uncategorized';
+    return variablePairs.some(
+      ([category, subcategory]) =>
+        transaction.category === category &&
+        (sub === subcategory || sub.startsWith(`${subcategory}:`))
+    );
+  };
+
+  const flexBudget = budget.variableTotal;
+  const flexSpent = transactions
+    .filter((transaction) => monthKey(transaction.date) === month && isFlexible(transaction))
+    .reduce((sum, transaction) => sum + transaction.moneyOut, 0);
+  const remaining = flexBudget - flexSpent;
+
+  const totalDays = daysInMonthOf(month) || 30;
+  const dayOfMonth = Math.min(totalDays, Math.max(1, now.getDate()));
+  const daysLeft = Math.max(1, totalDays - dayOfMonth + 1);
+
+  return {
+    month,
+    flexBudget,
+    flexSpent,
+    remaining,
+    daysLeft,
+    perDay: remaining / daysLeft,
+    dailyTarget: totalDays > 0 ? flexBudget / totalDays : 0,
+  };
+}
+
 export function uniqueMonths(transactions: MobileTransaction[]) {
   return Array.from(new Set(transactions.map((transaction) => monthKey(transaction.date)))).sort();
 }

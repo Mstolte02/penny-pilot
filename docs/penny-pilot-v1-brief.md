@@ -31,7 +31,7 @@ The app should feel bright and clear rather than like a dark dashboard. Dark mod
 ## V1 Product Pillars
 
 1. Create a flexible budget.
-2. Track spending and saving habits from synced bank transactions.
+2. Track spending and saving habits from synced bank transactions or private bank-export uploads.
 3. Track progress toward home buying and other major goals.
 4. Make transaction categorization feel fast, friendly, and low-stress.
 5. Keep users in control of their own categories, subcategories, and budget choices.
@@ -49,6 +49,7 @@ Setup should collect:
 - Initial goal templates
 - Guidance tone and helpfulness preferences
 - Bank sync readiness
+- Whether the user prefers automatic sync or private bank-export import
 
 During setup, Penny can appear as a friendly wizard/helper. After setup, Penny shifts into the full pilot identity. This gives onboarding a distinct emotional arc: "let's build your map" before "let's fly the plan."
 
@@ -81,7 +82,12 @@ Required budget concepts:
 
 ### Transactions
 
-A synced transaction inbox with a Quizlet-style categorization flow.
+A transaction inbox with two user-selectable data paths:
+
+- Bank sync for users who want automatic updates.
+- Private bank export for users who do not want to link an account.
+
+Both paths should feed the same Quizlet-style categorization flow.
 
 The free version must include:
 
@@ -91,6 +97,8 @@ The free version must include:
 - Create category or subcategory during review
 - Merchant learning rules
 - Confidence-based review queue
+- CSV/XLS/XLSX bank-export import
+- Simple in-app guidance for downloading transaction exports from a bank or credit card website
 
 The experience should feel quick and encouraging. Penny can say things like:
 
@@ -132,15 +140,33 @@ Penny Pilot may ship starter templates, but users must be able to:
 
 AI predictions must map transactions into the user's personal category system, not a rigid global category list.
 
-## Bank Sync
+## Transaction Data Options
 
-Bank syncing is required for V1.
+Penny Pilot should make setup feel like a choice, not a trust ultimatum.
+
+### Bank Sync
+
+Bank syncing is the convenience path for V1.
 
 Recommended provider:
 
 - Plaid
 
 Plaid integration requires a backend because the app must create link tokens, exchange public tokens, and protect API secrets server-side.
+
+### Private Bank Export
+
+Private bank export is the no-link privacy path.
+
+Users can download transactions from their bank or credit card site and import them into Penny Pilot without connecting a live account. V1 should support common CSV/XLS/XLSX exports and normalize flexible column names such as Date, Transaction Date, Description, Merchant, Amount, Debit, Credit, Money In, and Money Out.
+
+The upload flow should:
+
+1. Explain how to download a transaction export in plain language.
+2. Parse the export locally when possible.
+3. Auto-guess categories using merchant rules and category history.
+4. Send imported rows into the same review-card queue as synced transactions.
+5. Let users re-upload periodically to stay current.
 
 ## Recommended Stack
 
@@ -227,6 +253,7 @@ AI requests should use the smallest practical payload, for example:
 These must remain free:
 
 - Bank sync
+- Private bank-export import
 - Custom categories and subcategories
 - Fixed vs variable budget model
 - Quizlet-style transaction categorization
@@ -283,11 +310,12 @@ Potential freemium upgrades:
 3. Add Supabase auth shell with Apple and Google sign-in placeholders.
 4. Define Supabase schema and Row Level Security policies.
 5. Stub Plaid Link flow and backend token endpoints.
-6. Build starter tab navigation: Today, Budget, Transactions, Goals.
-7. Build the budget setup prototype with fixed and variable expenses.
-8. Build transaction review cards with sample data.
-9. Build custom category/subcategory management.
-10. Build the first generic goal model and home/car templates.
+6. Add private CSV/XLS/XLSX bank-export import as the no-link setup path.
+7. Build starter tab navigation: Today, Budget, Transactions, Goals.
+8. Build the budget setup prototype with fixed and variable expenses.
+9. Build transaction review cards with sample data.
+10. Build custom category/subcategory management.
+11. Build the first generic goal model and home/car templates.
 
 ## Open Decisions
 
@@ -296,3 +324,4 @@ Potential freemium upgrades:
 - Whether free users get one goal or multiple limited goals
 - Whether transaction auto-categorization happens before review or only after explicit approval
 - Whether Plaid sync is real in the first local prototype or mocked until backend setup is ready
+- Whether private import runs fully on-device in the mobile app or uses a backend parser for difficult bank formats

@@ -17,6 +17,7 @@ import {
   ToggleChip,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
+import { TransactionSourceCard } from '@/components/transaction-source-card';
 import { Spacing } from '@/constants/theme';
 import type { Category, Subcategory, Transaction } from '@/domain/finance';
 import { useTheme } from '@/hooks/use-theme';
@@ -261,6 +262,8 @@ export default function TransactionsScreen() {
             </ThemedText>
           </View>
         </View>
+
+        <TransactionSourceCard />
 
         {error ? (
           <Card style={styles.gap}>

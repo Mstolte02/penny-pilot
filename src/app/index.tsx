@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BankSyncCard } from '@/components/bank-sync-card';
 import { MiniBarChart, SparkBars } from '@/components/mini-charts';
-import { Card, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui';
+import { Card, PageHead, PennyBadge, PillButton, ProgressBar, Stat } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -26,6 +26,30 @@ import {
   uniqueMonths,
 } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
+
+const navGroups: { title: string; links: { label: string; href: Href }[] }[] = [
+  {
+    title: 'Plan',
+    links: [
+      { label: 'Budget', href: '/budget' },
+      { label: 'To-Do', href: '/todo' },
+    ],
+  },
+  {
+    title: 'Track',
+    links: [
+      { label: 'Review', href: '/transactions' },
+      { label: 'Spending', href: '/spending' },
+    ],
+  },
+  {
+    title: 'Forecast',
+    links: [
+      { label: 'Savings', href: '/savings' },
+      { label: 'Home goal', href: '/goals' },
+    ],
+  },
+];
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -66,19 +90,42 @@ export default function HomeScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <ThemedText type="smallBold" themeColor="primary">
-                Penny Pilot
-              </ThemedText>
-              <ThemedText type="subtitle" style={styles.title}>
-                Today&apos;s flight path
-              </ThemedText>
-              <ThemedText themeColor="textSecondary">
-                Budget, review, and goal progress in one quick pass.
-              </ThemedText>
-            </View>
-            <PennyBadge expression={budgetProgress > 1 ? 'concerned' : 'onTrack'} />
+          <PageHead
+            eyebrow="Penny Pilot"
+            title="Today's flight path"
+            subtitle="Budget, review, and goal progress in one quick pass."
+            mascot={<PennyBadge expression={budgetProgress > 1 ? 'concerned' : 'onTrack'} />}
+          />
+
+          <View style={styles.kpiGrid}>
+            <Stat
+              label="Take-home (plan)"
+              value={formatMoney(model.budget.monthlyIncome)}
+              delta="planned monthly income"
+              trend="flat"
+              style={styles.kpiTile}
+            />
+            <Stat
+              label={`Money in · ${formatMonth(model.latestMonth)}`}
+              value={formatMoney(model.latestIncome)}
+              delta={model.latestIncome >= model.budget.monthlyIncome ? 'at or above plan' : 'below plan'}
+              trend={model.latestIncome >= model.budget.monthlyIncome ? 'up' : 'down'}
+              style={styles.kpiTile}
+            />
+            <Stat
+              label={`Money out · ${formatMonth(model.latestMonth)}`}
+              value={formatMoney(model.latestSpend)}
+              delta="total spending"
+              trend="flat"
+              style={styles.kpiTile}
+            />
+            <Stat
+              label={`Available · ${formatMonth(model.latestMonth)}`}
+              value={formatMoney(model.latestNet)}
+              delta={model.latestNet >= 0 ? 'left over' : 'overspent'}
+              trend={model.latestNet >= 0 ? 'up' : 'down'}
+              style={styles.kpiTile}
+            />
           </View>
 
           <Card style={styles.heroCard}>
@@ -166,6 +213,22 @@ export default function HomeScreen() {
             <ActionRow title="Check home runway" detail={`Target: ${model.goal.targetDateLabel}`} href="/goals" />
           </Card>
 
+          <Card style={styles.navCard}>
+            <ThemedText type="smallBold">Jump to a section</ThemedText>
+            {navGroups.map((group) => (
+              <View key={group.title} style={styles.navGroup}>
+                <ThemedText type="small" themeColor="textSecondary" style={styles.navGroupTitle}>
+                  {group.title.toUpperCase()}
+                </ThemedText>
+                <View style={styles.navLinks}>
+                  {group.links.map((link) => (
+                    <NavPill key={link.label} label={link.label} href={link.href} />
+                  ))}
+                </View>
+              </View>
+            ))}
+          </Card>
+
           <Card>
             <View style={styles.setupRow}>
               <View style={styles.setupCopy}>
@@ -214,6 +277,18 @@ function ActionRow({ title, detail, href }: { title: string; detail: string; hre
         </View>
         <ThemedText type="smallBold">Open</ThemedText>
       </View>
+    </Link>
+  );
+}
+
+function NavPill({ label, href }: { label: string; href: Href }) {
+  const theme = useTheme();
+
+  return (
+    <Link
+      href={href}
+      style={[styles.navPill, { borderColor: theme.borderStrong, backgroundColor: theme.background }]}>
+      <ThemedText type="smallBold">{label}</ThemedText>
     </Link>
   );
 }
@@ -268,6 +343,38 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 34,
     lineHeight: 38,
+  },
+  kpiGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.three,
+  },
+  kpiTile: {
+    flexGrow: 1,
+    flexBasis: '45%',
+    minWidth: 140,
+  },
+  navCard: {
+    gap: Spacing.three,
+  },
+  navGroup: {
+    gap: Spacing.two,
+  },
+  navGroupTitle: {
+    fontSize: 11,
+    letterSpacing: 1,
+    fontWeight: 800,
+  },
+  navLinks: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  navPill: {
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingVertical: 9,
+    paddingHorizontal: 13,
   },
   heroCard: {
     gap: Spacing.three,

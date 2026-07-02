@@ -3,7 +3,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MiniBarChart } from '@/components/mini-charts';
-import { Card, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui';
+import { Card, PageHead, PennyBadge, PillButton, ProgressBar, SectionTotalBar } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -36,20 +36,12 @@ export default function BudgetScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <ThemedText type="smallBold" themeColor="primary">
-                Budget
-              </ThemedText>
-              <ThemedText type="subtitle" style={styles.title}>
-                Fixed, variable, personal
-              </ThemedText>
-              <ThemedText themeColor="textSecondary">
-                Penny starts with a plan, then lets real spending tune the variable lines.
-              </ThemedText>
-            </View>
-            <PennyBadge expression="happy" />
-          </View>
+          <PageHead
+            eyebrow="Budget"
+            title="Fixed, variable, personal"
+            subtitle="Penny starts with a plan, then lets real spending tune the variable lines."
+            mascot={<PennyBadge expression="happy" />}
+          />
 
           <Card style={styles.heroCard}>
             <View style={styles.heroTop}>
@@ -188,6 +180,15 @@ export default function BudgetScreen() {
               emphasized
             />
           </Card>
+
+          <SectionTotalBar
+            segments={[
+              { label: 'Income', value: formatMoney(model.monthlyIncome) },
+              { label: 'Expenses', value: formatMoney(model.totalExpenses) },
+              { label: 'Net savings', value: formatMoney(model.monthlySavingsTarget), accent: true },
+            ]}
+            operators={['−', '=']}
+          />
 
           <Card>
             <View style={styles.sectionHeader}>

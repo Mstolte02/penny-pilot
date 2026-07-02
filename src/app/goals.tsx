@@ -3,7 +3,7 @@ import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MiniBarChart } from '@/components/mini-charts';
-import { Card, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui';
+import { Card, PageHead, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -50,20 +50,12 @@ export default function GoalsScreen() {
     <ThemedView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <ThemedText type="smallBold" themeColor="primary">
-                Goals
-              </ThemedText>
-              <ThemedText type="subtitle" style={styles.title}>
-                Big purchases, clear runway
-              </ThemedText>
-              <ThemedText themeColor="textSecondary">
-                Penny starts with a simple savings pace, then compares models as history grows.
-              </ThemedText>
-            </View>
-            <PennyBadge expression="onTrack" />
-          </View>
+          <PageHead
+            eyebrow="Goals"
+            title="Big purchases, clear runway"
+            subtitle="Penny starts with a simple savings pace, then compares models as history grows."
+            mascot={<PennyBadge expression="onTrack" />}
+          />
 
           <Card style={styles.goalCard}>
             <View style={styles.goalHeader}>

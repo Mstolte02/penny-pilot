@@ -18,8 +18,13 @@ export const Colors = {
     accent: '#5DA9E9',
     success: '#2FA866',
     warning: '#D9823B',
+    danger: '#C4443B',
     border: '#E8DCC7',
+    // Hard editorial border/shadow color (finance_tracker uses #111; penny uses its navy ink).
+    borderStrong: '#1D3557',
     surface: '#FFFDF7',
+    // Dark bar used for budget / contribution totals (finance_tracker's .budget-total).
+    ink: '#1D3557',
   },
   dark: {
     text: '#1D3557',
@@ -31,12 +36,46 @@ export const Colors = {
     accent: '#5DA9E9',
     success: '#2FA866',
     warning: '#D9823B',
+    danger: '#C4443B',
     border: '#E8DCC7',
+    borderStrong: '#1D3557',
     surface: '#FFFFFF',
+    ink: '#1D3557',
   },
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+
+// Distinct categorical palette for charts/legends, drawn from Penny's own colors
+// (copper / sky / green / navy / orange) plus a few tints — no new brand hues.
+export const categoryColors: Record<string, string> = {
+  Essentials: '#5DA9E9',
+  Food: '#B87333',
+  Debt: '#C4443B',
+  'Daily Living': '#667085',
+  'Subscriptions & Fun': '#D9823B',
+  Entertainment: '#D9823B',
+  Health: '#2FA866',
+  Home: '#1D3557',
+  Giving: '#E8B27A',
+  Income: '#5DA9E9',
+  Uncategorized: '#A8A29E',
+};
+
+const categoryFallback = [
+  '#5DA9E9',
+  '#B87333',
+  '#2FA866',
+  '#D9823B',
+  '#C4443B',
+  '#1D3557',
+  '#667085',
+  '#E8B27A',
+];
+
+export function colorForCategory(category: string, index = 0): string {
+  return categoryColors[category] ?? categoryFallback[index % categoryFallback.length];
+}
 
 export const Fonts = Platform.select({
   ios: {

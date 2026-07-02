@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Card, PennyBadge, PillButton, ToggleChip } from '@/components/penny-ui';
+import { Card, PageHead, PennyBadge, PillButton, ToggleChip } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
@@ -241,20 +241,12 @@ export default function TransactionsScreen() {
           />
         }>
         <SafeAreaView style={styles.safeArea}>
-          <View style={styles.header}>
-            <View style={styles.headerCopy}>
-              <ThemedText type="smallBold" themeColor="primary">
-                Transaction review
-              </ThemedText>
-              <ThemedText type="subtitle" style={styles.title}>
-                Sort it like flashcards
-              </ThemedText>
-              <ThemedText themeColor="textSecondary">
-                Approve Penny&apos;s guess, change the category, and teach repeat merchants as you go.
-              </ThemedText>
-            </View>
-            <PennyBadge expression={remainingCount === 0 ? 'celebrating' : 'thinking'} />
-          </View>
+          <PageHead
+            eyebrow="Transaction review"
+            title="Sort it like flashcards"
+            subtitle="Approve Penny's guess, change the category, and teach repeat merchants as you go."
+            mascot={<PennyBadge expression={remainingCount === 0 ? 'celebrating' : 'thinking'} />}
+          />
 
           <View style={styles.statusRow}>
             <View style={[styles.statusPill, { backgroundColor: theme.backgroundSelected }]}>

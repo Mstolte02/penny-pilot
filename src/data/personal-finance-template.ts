@@ -95,302 +95,101 @@ export const mobileSavingsConfig: SavingsConfig = {
   savingsApy: 0.045,
 };
 
-export const mobileTransactions: MobileTransaction[] = [
-  {
-    id: 'income-2026-03-1',
-    date: '2026-03-15',
-    item: 'Primary paycheck',
-    moneyIn: 3900,
+const pad = (value: number) => String(value).padStart(2, '0');
+
+function makeIncome(ym: string, day: number, item: string, amount: number, n: number): MobileTransaction {
+  return {
+    id: `income-${ym}-${n}`,
+    date: `${ym}-${pad(day)}`,
+    item,
+    moneyIn: amount,
     moneyOut: 0,
-    amount: 3900,
+    amount,
     category: 'Income',
     subcategory: null,
     type: 'income',
-  },
-  {
-    id: 'income-2026-03-2',
-    date: '2026-03-15',
-    item: 'Secondary paycheck',
-    moneyIn: 3012,
-    moneyOut: 0,
-    amount: 3012,
-    category: 'Income',
-    subcategory: null,
-    type: 'income',
-  },
-  {
-    id: 'rent-2026-03',
-    date: '2026-03-01',
-    item: 'Rent',
+  };
+}
+
+function makeExpense(
+  ym: string,
+  day: number,
+  item: string,
+  amount: number,
+  category: string,
+  subcategory: string,
+  key: string
+): MobileTransaction {
+  return {
+    id: `${key}-${ym}`,
+    date: `${ym}-${pad(day)}`,
+    item,
     moneyIn: 0,
-    moneyOut: 1498,
-    amount: -1498,
-    category: 'Essentials',
-    subcategory: 'Rent',
+    moneyOut: amount,
+    amount: -amount,
+    category,
+    subcategory,
     type: 'expense',
-  },
-  {
-    id: 'grocery-2026-03',
-    date: '2026-03-08',
-    item: 'Grocery store',
-    moneyIn: 0,
-    moneyOut: 520,
-    amount: -520,
-    category: 'Food',
-    subcategory: 'Groceries',
-    type: 'expense',
-  },
-  {
-    id: 'dining-2026-03',
-    date: '2026-03-16',
-    item: 'Restaurant',
-    moneyIn: 0,
-    moneyOut: 310,
-    amount: -310,
-    category: 'Food',
-    subcategory: 'Dining Out',
-    type: 'expense',
-  },
-  {
-    id: 'gas-2026-03',
-    date: '2026-03-21',
-    item: 'Gas station',
-    moneyIn: 0,
-    moneyOut: 176,
-    amount: -176,
-    category: 'Essentials',
-    subcategory: 'Transportation: Gas',
-    type: 'expense',
-  },
-  {
-    id: 'income-2026-04-1',
-    date: '2026-04-15',
-    item: 'Primary paycheck',
-    moneyIn: 3900,
-    moneyOut: 0,
-    amount: 3900,
-    category: 'Income',
-    subcategory: null,
-    type: 'income',
-  },
-  {
-    id: 'income-2026-04-2',
-    date: '2026-04-15',
-    item: 'Secondary paycheck',
-    moneyIn: 3012,
-    moneyOut: 0,
-    amount: 3012,
-    category: 'Income',
-    subcategory: null,
-    type: 'income',
-  },
-  {
-    id: 'rent-2026-04',
-    date: '2026-04-01',
-    item: 'Rent',
-    moneyIn: 0,
-    moneyOut: 1498,
-    amount: -1498,
-    category: 'Essentials',
-    subcategory: 'Rent',
-    type: 'expense',
-  },
-  {
-    id: 'grocery-2026-04',
-    date: '2026-04-07',
-    item: 'Grocery store',
-    moneyIn: 0,
-    moneyOut: 575,
-    amount: -575,
-    category: 'Food',
-    subcategory: 'Groceries',
-    type: 'expense',
-  },
-  {
-    id: 'dining-2026-04',
-    date: '2026-04-18',
-    item: 'Restaurant',
-    moneyIn: 0,
-    moneyOut: 385,
-    amount: -385,
-    category: 'Food',
-    subcategory: 'Dining Out',
-    type: 'expense',
-  },
-  {
-    id: 'gas-2026-04',
-    date: '2026-04-22',
-    item: 'Gas station',
-    moneyIn: 0,
-    moneyOut: 188,
-    amount: -188,
-    category: 'Essentials',
-    subcategory: 'Transportation: Gas',
-    type: 'expense',
-  },
-  {
-    id: 'household-2026-04',
-    date: '2026-04-25',
-    item: 'Household supplies',
-    moneyIn: 0,
-    moneyOut: 132,
-    amount: -132,
-    category: 'Daily Living',
-    subcategory: 'Household Consumables',
-    type: 'expense',
-  },
-  {
-    id: 'income-2026-05-1',
-    date: '2026-05-15',
-    item: 'Primary paycheck',
-    moneyIn: 3900,
-    moneyOut: 0,
-    amount: 3900,
-    category: 'Income',
-    subcategory: null,
-    type: 'income',
-  },
-  {
-    id: 'income-2026-05-2',
-    date: '2026-05-15',
-    item: 'Secondary paycheck',
-    moneyIn: 3012,
-    moneyOut: 0,
-    amount: 3012,
-    category: 'Income',
-    subcategory: null,
-    type: 'income',
-  },
-  {
-    id: 'rent-2026-05',
-    date: '2026-05-01',
-    item: 'Rent',
-    moneyIn: 0,
-    moneyOut: 1498,
-    amount: -1498,
-    category: 'Essentials',
-    subcategory: 'Rent',
-    type: 'expense',
-  },
-  {
-    id: 'grocery-2026-05',
-    date: '2026-05-07',
-    item: 'Grocery store',
-    moneyIn: 0,
-    moneyOut: 610,
-    amount: -610,
-    category: 'Food',
-    subcategory: 'Groceries',
-    type: 'expense',
-  },
-  {
-    id: 'dining-2026-05',
-    date: '2026-05-18',
-    item: 'Restaurant',
-    moneyIn: 0,
-    moneyOut: 422,
-    amount: -422,
-    category: 'Food',
-    subcategory: 'Dining Out',
-    type: 'expense',
-  },
-  {
-    id: 'gas-2026-05',
-    date: '2026-05-22',
-    item: 'Gas station',
-    moneyIn: 0,
-    moneyOut: 205,
-    amount: -205,
-    category: 'Essentials',
-    subcategory: 'Transportation: Gas',
-    type: 'expense',
-  },
-  {
-    id: 'clothing-2026-05',
-    date: '2026-05-27',
-    item: 'Clothing',
-    moneyIn: 0,
-    moneyOut: 190,
-    amount: -190,
-    category: 'Daily Living',
-    subcategory: 'Clothing',
-    type: 'expense',
-  },
-  {
-    id: 'income-2026-06-1',
-    date: '2026-06-15',
-    item: 'Primary paycheck',
-    moneyIn: 3900,
-    moneyOut: 0,
-    amount: 3900,
-    category: 'Income',
-    subcategory: null,
-    type: 'income',
-  },
-  {
-    id: 'income-2026-06-2',
-    date: '2026-06-15',
-    item: 'Secondary paycheck',
-    moneyIn: 3012,
-    moneyOut: 0,
-    amount: 3012,
-    category: 'Income',
-    subcategory: null,
-    type: 'income',
-  },
-  {
-    id: 'rent-2026-06',
-    date: '2026-06-01',
-    item: 'Rent',
-    moneyIn: 0,
-    moneyOut: 1498,
-    amount: -1498,
-    category: 'Essentials',
-    subcategory: 'Rent',
-    type: 'expense',
-  },
-  {
-    id: 'grocery-2026-06',
-    date: '2026-06-06',
-    item: 'Grocery store',
-    moneyIn: 0,
-    moneyOut: 640,
-    amount: -640,
-    category: 'Food',
-    subcategory: 'Groceries',
-    type: 'expense',
-  },
-  {
-    id: 'dining-2026-06',
-    date: '2026-06-17',
-    item: 'Restaurant',
-    moneyIn: 0,
-    moneyOut: 455,
-    amount: -455,
-    category: 'Food',
-    subcategory: 'Dining Out',
-    type: 'expense',
-  },
-  {
-    id: 'gas-2026-06',
-    date: '2026-06-20',
-    item: 'Gas station',
-    moneyIn: 0,
-    moneyOut: 218,
-    amount: -218,
-    category: 'Essentials',
-    subcategory: 'Transportation: Gas',
-    type: 'expense',
-  },
-  {
-    id: 'appearance-2026-06',
-    date: '2026-06-26',
-    item: 'Hair appointment',
-    moneyIn: 0,
-    moneyOut: 96,
-    amount: -96,
-    category: 'Daily Living',
-    subcategory: 'Appearance',
-    type: 'expense',
-  },
-];
+  };
+}
+
+// 12 months of sample history (Jul 2025 -> Jun 2026) generated deterministically so the
+// trend charts have something to say. Multiple subcategories per category set up drill-downs.
+function buildMobileTransactions(): MobileTransaction[] {
+  const out: MobileTransaction[] = [];
+
+  for (let i = 0; i < 12; i += 1) {
+    const date = new Date(2025, 6 + i, 1);
+    const ym = `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
+    const wiggle = (baseValue: number, amp: number, phase = 0) =>
+      Math.max(0, Math.round(baseValue + Math.sin(i * 0.9 + phase) * amp));
+
+    out.push(makeIncome(ym, 15, 'Primary paycheck', 3900, 1));
+    out.push(makeIncome(ym, 15, 'Secondary paycheck', 3012, 2));
+
+    out.push(makeExpense(ym, 1, 'Rent', 1498, 'Essentials', 'Rent', 'rent'));
+    out.push(makeExpense(ym, 6, 'Grocery store', wiggle(560, 70), 'Food', 'Groceries', 'grocery'));
+    out.push(makeExpense(ym, 12, 'Coffee & snacks', wiggle(72, 24, 1), 'Food', 'Snacks', 'snacks'));
+    out.push(
+      makeExpense(ym, 17, 'Restaurant', wiggle(330 + i * 9, 55, 2), 'Food', 'Dining Out', 'dining')
+    );
+    out.push(
+      makeExpense(ym, 20, 'Gas station', wiggle(190, 42, 3), 'Essentials', 'Transportation: Gas', 'gas')
+    );
+    out.push(
+      makeExpense(
+        ym,
+        24,
+        'Household supplies',
+        wiggle(120, 45, 4),
+        'Daily Living',
+        'Household Consumables',
+        'household'
+      )
+    );
+
+    if (i % 3 === 1) {
+      out.push(makeExpense(ym, 26, 'Hair appointment', 96, 'Daily Living', 'Appearance', 'appearance'));
+    }
+    if (i % 4 === 2) {
+      out.push(makeExpense(ym, 27, 'Clothing', wiggle(180, 60, 5), 'Daily Living', 'Clothing', 'clothing'));
+    }
+    if (i === 8) {
+      out.push(
+        makeExpense(
+          ym,
+          14,
+          'Car repair',
+          640,
+          'Essentials',
+          'Transportation: Maintenance/Repairs',
+          'maintenance'
+        )
+      );
+    }
+  }
+
+  return out;
+}
+
+export const mobileTransactions: MobileTransaction[] = buildMobileTransactions();

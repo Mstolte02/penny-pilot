@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -25,6 +26,7 @@ type TrendBarsProps = {
  */
 export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: TrendBarsProps) {
   const theme = useTheme();
+  const [plotWidth, setPlotWidth] = useState(0);
   const values = data.map((point) => point.value);
   const max = Math.max(...values, 1);
   const min = Math.min(...values, 0);
@@ -35,7 +37,7 @@ export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: Tre
   const heightFor = (value: number) => Math.max(3, ((value - base) / span) * plotHeight);
 
   const averages =
-    averageWindow > 0
+    averageWindow > 0 && data.length > 1
       ? values.map((_, index) => {
           const start = Math.max(0, index - averageWindow + 1);
           const window = values.slice(start, index + 1);
@@ -43,12 +45,35 @@ export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: Tre
         })
       : null;
 
+  // Build a dotted line by interpolating small dots along the average polyline.
+  const dots: { x: number; y: number }[] = [];
+  if (averages && plotWidth > 0) {
+    const slot = plotWidth / data.length;
+    const points = averages.map((avg, index) => ({
+      x: (index + 0.5) * slot,
+      y: plotHeight - heightFor(avg),
+    }));
+    const spacing = 6;
+    for (let i = 0; i < points.length - 1; i += 1) {
+      const a = points[i];
+      const b = points[i + 1];
+      const distance = Math.hypot(b.x - a.x, b.y - a.y);
+      const steps = Math.max(1, Math.round(distance / spacing));
+      for (let step = 0; step <= steps; step += 1) {
+        const t = step / steps;
+        dots.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      }
+    }
+  }
+
   // Show at most ~6 x labels so they never crowd.
   const labelStep = Math.max(1, Math.ceil(data.length / 6));
 
   return (
     <View style={styles.trend}>
-      <View style={[styles.trendPlot, { height: plotHeight }]}>
+      <View
+        style={[styles.trendPlot, { height: plotHeight }]}
+        onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}>
         {data.map((point, index) => {
           const isLast = index === data.length - 1;
           const color = signed
@@ -65,17 +90,22 @@ export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: Tre
                   { height: heightFor(point.value), backgroundColor: color, opacity: isLast ? 1 : 0.55 },
                 ]}
               />
-              {averages ? (
-                <View
-                  style={[
-                    styles.trendAvgDot,
-                    { bottom: heightFor(averages[index]) - 3, backgroundColor: theme.text },
-                  ]}
-                />
-              ) : null}
             </View>
           );
         })}
+        {dots.length > 0 ? (
+          <View pointerEvents="none" style={styles.trendOverlay}>
+            {dots.map((dot, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.trendDot,
+                  { left: dot.x - 1.5, top: dot.y - 1.5, backgroundColor: theme.text },
+                ]}
+              />
+            ))}
+          </View>
+        ) : null}
       </View>
       <View style={styles.trendLabels}>
         {data.map((point, index) => (
@@ -180,11 +210,18 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 3,
     borderTopRightRadius: 3,
   },
-  trendAvgDot: {
+  trendOverlay: {
     position: 'absolute',
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  trendDot: {
+    position: 'absolute',
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
   },
   trendLabels: {
     flexDirection: 'row',

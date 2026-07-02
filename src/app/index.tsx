@@ -38,10 +38,6 @@ function shortMonth(month: string) {
   return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
 }
 
-function signedMoney(value: number) {
-  return `${value >= 0 ? '+' : '−'}${formatMoney(Math.abs(value))}`;
-}
-
 function pctVs(actual: number, target: number) {
   return target > 0 ? ((actual - target) / target) * 100 : undefined;
 }
@@ -57,8 +53,7 @@ export default function TodayScreen() {
     const income = monthlyIncome(mobileTransactions);
     const net = actualMonthlyNet(mobileTransactions);
     const safe = safeToSpendToday(mobileBudgetPlan, mobileTransactions);
-    const series = months.slice(-12);
-    return { budget, months, spends, income, net, safe, series };
+    return { budget, months, spends, income, net, safe, series: months.slice(-12) };
   }, []);
 
   const [month, setMonth] = useState(() => base.months[base.months.length - 1] ?? '');
@@ -66,10 +61,6 @@ export default function TodayScreen() {
   const view = useMemo(() => {
     const { budget, months, spends, income, net } = base;
     const spendRow = spends.find((row) => row.month === month);
-    const incomeM = income[month] ?? 0;
-    const spendM = spendRow?.total ?? 0;
-    const netM = net[month] ?? 0;
-
     const endIndex = months.indexOf(month);
     const windowMonths = months.slice(Math.max(0, endIndex - 2), endIndex + 1);
     const categories = Object.entries(spendRow?.byCategory ?? {})
@@ -90,16 +81,16 @@ export default function TodayScreen() {
       .slice(0, 5);
 
     return {
-      incomeM,
-      spendM,
-      netM,
+      budget,
+      incomeM: income[month] ?? 0,
+      spendM: spendRow?.total ?? 0,
+      netM: net[month] ?? 0,
       categories,
       spendSeries: base.series.map((m) => ({
         label: shortMonth(m),
         value: spends.find((row) => row.month === m)?.total ?? 0,
       })),
       netSeries: base.series.map((m) => ({ label: shortMonth(m), value: net[m] ?? 0 })),
-      budget,
     };
   }, [base, month]);
 
@@ -151,31 +142,22 @@ export default function TodayScreen() {
             </ThemedText>
           </Card>
 
-          <View style={styles.rowBetween}>
-            <ThemedText type="smallBold">Actuals vs budget</ThemedText>
-            <MonthTicker
-              months={base.months}
-              value={month}
-              onChange={setMonth}
-              formatLabel={shortMonth}
-            />
+          <View style={styles.tickerRow}>
+            <MonthTicker months={base.months} value={month} onChange={setMonth} formatLabel={shortMonth} />
           </View>
+          <ThemedText type="smallBold">Actuals vs plan · {shortMonth(month)}</ThemedText>
 
           <View style={styles.kpiRow}>
             <TrendStat
               label="Money in"
               value={formatMoney(view.incomeM)}
               deltaPct={pctVs(view.incomeM, view.budget.monthlyIncome)}
-              deltaAbs={signedMoney(view.incomeM - view.budget.monthlyIncome)}
-              note="vs plan"
               style={styles.kpiTile}
             />
             <TrendStat
               label="Money out"
               value={formatMoney(view.spendM)}
               deltaPct={pctVs(view.spendM, view.budget.totalExpenses)}
-              deltaAbs={signedMoney(view.spendM - view.budget.totalExpenses)}
-              note="vs plan"
               goodWhenUp={false}
               style={styles.kpiTile}
             />
@@ -184,12 +166,13 @@ export default function TodayScreen() {
             label="Net saved"
             value={formatMoney(view.netM)}
             deltaPct={pctVs(view.netM, view.budget.monthlySavingsTarget)}
-            deltaAbs={signedMoney(view.netM - view.budget.monthlySavingsTarget)}
-            note="vs plan"
           />
 
           <Card>
             <ThemedText type="smallBold">Net saved per month</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Green = saved, red = dipped in · dotted line = 3-mo average.
+            </ThemedText>
             <TrendBars data={view.netSeries} signed />
           </Card>
 
@@ -197,18 +180,16 @@ export default function TodayScreen() {
         </ScrollView>
       ) : (
         <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          <View style={styles.rowBetween}>
-            <ThemedText type="smallBold">Monthly spend · dotted = 3-mo avg</ThemedText>
-            <MonthTicker
-              months={base.months}
-              value={month}
-              onChange={setMonth}
-              formatLabel={shortMonth}
-            />
+          <View style={styles.tickerRow}>
+            <MonthTicker months={base.months} value={month} onChange={setMonth} formatLabel={shortMonth} />
           </View>
 
           <Card>
-            <TrendBars data={view.spendSeries} height={140} />
+            <ThemedText type="smallBold">Monthly spend</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Bars = monthly total · dotted line = 3-mo average.
+            </ThemedText>
+            <TrendBars data={view.spendSeries} height={144} />
           </Card>
 
           <Card>
@@ -244,6 +225,9 @@ const styles = StyleSheet.create({
     lineHeight: 48,
     fontWeight: 800,
     letterSpacing: -1,
+  },
+  tickerRow: {
+    alignItems: 'center',
   },
   kpiRow: {
     flexDirection: 'row',

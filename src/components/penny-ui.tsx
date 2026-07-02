@@ -121,12 +121,14 @@ export function StatRow({
   );
 }
 
-/** Compact KPI: value plus an inline trend (arrow + % + $ delta) so cards stay uncrowded. */
+/**
+ * Compact KPI: value plus a single, colored trend chip (one metric — the percent — so it
+ * never crowds or truncates). Color reflects good/bad via `goodWhenUp`.
+ */
 export function TrendStat({
   label,
   value,
   deltaPct,
-  deltaAbs,
   note,
   goodWhenUp = true,
   style,
@@ -134,7 +136,6 @@ export function TrendStat({
   label: string;
   value: string;
   deltaPct?: number;
-  deltaAbs?: string;
   note?: string;
   goodWhenUp?: boolean;
   style?: ViewStyle;
@@ -142,7 +143,8 @@ export function TrendStat({
   const theme = useTheme();
   const hasDelta = deltaPct !== undefined;
   const up = (deltaPct ?? 0) >= 0;
-  const color = !hasDelta ? theme.textSecondary : up === goodWhenUp ? theme.success : theme.danger;
+  const flat = Math.round(deltaPct ?? 0) === 0;
+  const color = !hasDelta || flat ? theme.textSecondary : up === goodWhenUp ? theme.success : theme.danger;
 
   return (
     <Card style={StyleSheet.flatten([styles.statCard, style])}>
@@ -153,10 +155,8 @@ export function TrendStat({
         {value}
       </ThemedText>
       {hasDelta ? (
-        <ThemedText type="small" numberOfLines={1} style={{ color }}>
-          {up ? '▲' : '▼'} {Math.abs(deltaPct ?? 0).toFixed(0)}%
-          {deltaAbs ? ` (${deltaAbs})` : ''}
-          {note ? ` ${note}` : ''}
+        <ThemedText type="smallBold" numberOfLines={1} style={{ color }}>
+          {flat ? '•' : up ? '▲' : '▼'} {Math.abs(deltaPct ?? 0).toFixed(0)}%{note ? ` ${note}` : ''}
         </ThemedText>
       ) : note ? (
         <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>

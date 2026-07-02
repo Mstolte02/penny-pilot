@@ -11,54 +11,83 @@ type TrendPoint = {
 
 type TrendBarsProps = {
   data: TrendPoint[];
-  valueLabel?: (value: number) => string;
   height?: number;
   /** Color bars by sign (green when >= 0, red when negative) instead of accent/primary. */
   signed?: boolean;
+  /** Trailing moving-average window drawn as a dotted line. 0 hides it. */
+  averageWindow?: number;
 };
 
 /**
- * Vertical bars for a value over time. Scaled from a lifted baseline (just below the
- * smallest value) instead of 0, so month-to-month differences are actually visible —
- * that's the whole point of a trend chart. The latest bar is highlighted.
+ * Compact bars for a value over time with a dotted trailing-average line. Bars are thin so
+ * many months fit; scaled from a lifted baseline (not 0) so month-to-month differences read.
+ * No per-bar number labels — the shape does the talking; the latest bar is highlighted.
  */
-export function TrendBars({ data, valueLabel, height = 176, signed }: TrendBarsProps) {
+export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: TrendBarsProps) {
   const theme = useTheme();
   const values = data.map((point) => point.value);
   const max = Math.max(...values, 1);
   const min = Math.min(...values, 0);
   // Lift the baseline when everything is positive so small deltas read as tall/short bars.
-  const base = min > 0 ? min - (max - min) * 0.6 - 1 : min;
+  const base = min > 0 ? min - (max - min) * 0.5 - 1 : min;
   const span = Math.max(max - base, 1);
-  const barMax = height - 46;
+  const plotHeight = height - 20;
+  const heightFor = (value: number) => Math.max(3, ((value - base) / span) * plotHeight);
+
+  const averages =
+    averageWindow > 0
+      ? values.map((_, index) => {
+          const start = Math.max(0, index - averageWindow + 1);
+          const window = values.slice(start, index + 1);
+          return window.reduce((sum, value) => sum + value, 0) / window.length;
+        })
+      : null;
+
+  // Show at most ~6 x labels so they never crowd.
+  const labelStep = Math.max(1, Math.ceil(data.length / 6));
 
   return (
-    <View style={[styles.trend, { height }]}>
-      {data.map((point, index) => {
-        const barHeight = Math.max(8, ((point.value - base) / span) * barMax);
-        const isLast = index === data.length - 1;
-        const color = signed
-          ? point.value >= 0
-            ? theme.success
-            : theme.danger
-          : isLast
-            ? theme.primary
+    <View style={styles.trend}>
+      <View style={[styles.trendPlot, { height: plotHeight }]}>
+        {data.map((point, index) => {
+          const isLast = index === data.length - 1;
+          const color = signed
+            ? point.value >= 0
+              ? theme.success
+              : theme.danger
             : theme.accent;
 
-        return (
-          <View key={`${point.label}-${index}`} style={styles.trendColumn}>
-            {valueLabel ? (
-              <ThemedText numberOfLines={1} style={styles.trendValue}>
-                {valueLabel(point.value)}
-              </ThemedText>
-            ) : null}
-            <View style={[styles.trendBar, { height: barHeight, backgroundColor: color }]} />
-            <ThemedText numberOfLines={1} themeColor="textSecondary" style={styles.trendLabel}>
-              {point.label}
-            </ThemedText>
-          </View>
-        );
-      })}
+          return (
+            <View key={`${point.label}-${index}`} style={styles.trendColumn}>
+              <View
+                style={[
+                  styles.trendBar,
+                  { height: heightFor(point.value), backgroundColor: color, opacity: isLast ? 1 : 0.55 },
+                ]}
+              />
+              {averages ? (
+                <View
+                  style={[
+                    styles.trendAvgDot,
+                    { bottom: heightFor(averages[index]) - 3, backgroundColor: theme.text },
+                  ]}
+                />
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+      <View style={styles.trendLabels}>
+        {data.map((point, index) => (
+          <ThemedText
+            key={`${point.label}-label-${index}`}
+            numberOfLines={1}
+            themeColor="textSecondary"
+            style={styles.trendLabel}>
+            {index % labelStep === 0 ? point.label : ''}
+          </ThemedText>
+        ))}
+      </View>
     </View>
   );
 }
@@ -129,29 +158,42 @@ export function RankedBars({ data, valueLabel, max: maxProp }: RankedBarsProps) 
 
 const styles = StyleSheet.create({
   trend: {
+    width: '100%',
+    gap: Spacing.one,
+  },
+  trendPlot: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: Spacing.two,
+    gap: 3,
     width: '100%',
   },
   trendColumn: {
     flex: 1,
+    height: '100%',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    gap: Spacing.one,
     minWidth: 0,
   },
   trendBar: {
-    width: '66%',
-    minWidth: 12,
-    borderTopLeftRadius: 6,
-    borderTopRightRadius: 6,
+    width: '52%',
+    minWidth: 4,
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
   },
-  trendValue: {
-    fontSize: 11,
-    fontWeight: 700,
+  trendAvgDot: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  trendLabels: {
+    flexDirection: 'row',
+    gap: 3,
   },
   trendLabel: {
-    fontSize: 11,
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 10,
   },
   ranked: {
     gap: Spacing.three,

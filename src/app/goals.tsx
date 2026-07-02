@@ -45,10 +45,6 @@ function shortMonth(month: string) {
   return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
 }
 
-function moneyK(value: number) {
-  return formatMoney(value / 1000, 0) + 'k';
-}
-
 export default function GoalsScreen() {
   const [active, setActive] = useState('goal');
   const [pace, setPace] = useState<Pace>('ewma');
@@ -151,7 +147,7 @@ export default function GoalsScreen() {
               Projected balance in 2 years: {formatMoney(savings.horizonPoint.actual)} (budget says{' '}
               {formatMoney(savings.horizonPoint.budgeted)}).
             </ThemedText>
-            <TrendBars data={savings.chart} valueLabel={moneyK} />
+            <TrendBars data={savings.chart} averageWindow={0} height={140} />
           </Card>
 
           <Card>

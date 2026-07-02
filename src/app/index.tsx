@@ -5,12 +5,13 @@ import { BankSyncCard } from '@/components/bank-sync-card';
 import { RankedBars, TrendBars } from '@/components/mini-charts';
 import {
   Card,
+  MonthTicker,
   PANEL_BOTTOM_INSET,
   PennyBadge,
   Pill,
   ProgressBar,
   Screen,
-  Stat,
+  TrendStat,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { colorForCategory, Spacing } from '@/constants/theme';
@@ -37,42 +38,44 @@ function shortMonth(month: string) {
   return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
 }
 
-function moneyK(value: number) {
-  return formatMoney(value / 1000, 1) + 'k';
+function signedMoney(value: number) {
+  return `${value >= 0 ? '+' : '−'}${formatMoney(Math.abs(value))}`;
+}
+
+function pctVs(actual: number, target: number) {
+  return target > 0 ? ((actual - target) / target) * 100 : undefined;
 }
 
 export default function TodayScreen() {
   const theme = useTheme();
   const [active, setActive] = useState('overview');
 
-  const model = useMemo(() => {
+  const base = useMemo(() => {
     const budget = summarizeBudget(mobileBudgetPlan, mobileTransactions);
     const months = uniqueMonths(mobileTransactions);
-    const latest = months[months.length - 1] ?? '';
     const spends = monthlySpend(mobileTransactions);
     const income = monthlyIncome(mobileTransactions);
     const net = actualMonthlyNet(mobileTransactions);
     const safe = safeToSpendToday(mobileBudgetPlan, mobileTransactions);
+    const series = months.slice(-12);
+    return { budget, months, spends, income, net, safe, series };
+  }, []);
 
-    const latestSpendRow = spends.find((row) => row.month === latest);
-    const latestSpend = latestSpendRow?.total ?? 0;
-    const latestIncome = income[latest] ?? 0;
-    const latestNet = net[latest] ?? 0;
+  const [month, setMonth] = useState(() => base.months[base.months.length - 1] ?? '');
 
-    const spendSeries = months.slice(-6).map((month) => ({
-      label: shortMonth(month),
-      value: spends.find((row) => row.month === month)?.total ?? 0,
-    }));
-    const netSeries = months.slice(-6).map((month) => ({
-      label: shortMonth(month),
-      value: net[month] ?? 0,
-    }));
+  const view = useMemo(() => {
+    const { budget, months, spends, income, net } = base;
+    const spendRow = spends.find((row) => row.month === month);
+    const incomeM = income[month] ?? 0;
+    const spendM = spendRow?.total ?? 0;
+    const netM = net[month] ?? 0;
 
-    const windowMonths = months.slice(-3);
-    const categories = Object.entries(latestSpendRow?.byCategory ?? {})
+    const endIndex = months.indexOf(month);
+    const windowMonths = months.slice(Math.max(0, endIndex - 2), endIndex + 1);
+    const categories = Object.entries(spendRow?.byCategory ?? {})
       .map(([category, value]) => {
         const avg = mean(
-          windowMonths.map((month) => spends.find((row) => row.month === month)?.byCategory[category] ?? 0)
+          windowMonths.map((m) => spends.find((row) => row.month === m)?.byCategory[category] ?? 0)
         );
         const pct = avg > 0 ? ((value - avg) / avg) * 100 : 0;
         return {
@@ -86,12 +89,22 @@ export default function TodayScreen() {
       .sort((a, b) => b.value - a.value)
       .slice(0, 5);
 
-    return { budget, latest, latestIncome, latestSpend, latestNet, safe, spendSeries, netSeries, categories };
-  }, []);
+    return {
+      incomeM,
+      spendM,
+      netM,
+      categories,
+      spendSeries: base.series.map((m) => ({
+        label: shortMonth(m),
+        value: spends.find((row) => row.month === m)?.total ?? 0,
+      })),
+      netSeries: base.series.map((m) => ({ label: shortMonth(m), value: net[m] ?? 0 })),
+      budget,
+    };
+  }, [base, month]);
 
-  const { safe } = model;
-  const status =
-    safe.perDay <= 0 ? 'over' : safe.perDay < safe.dailyTarget ? 'tight' : 'good';
+  const { safe } = base;
+  const status = safe.perDay <= 0 ? 'over' : safe.perDay < safe.dailyTarget ? 'tight' : 'good';
   const statusColor =
     status === 'over' ? theme.danger : status === 'tight' ? theme.warning : theme.success;
   const statusMascot =
@@ -133,57 +146,79 @@ export default function TodayScreen() {
             </ThemedText>
             <ProgressBar value={flexUsed} />
             <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(Math.max(0, safe.remaining))} left of your {formatMoney(safe.flexBudget)}{' '}
-              flexible budget · {safe.daysLeft} {safe.daysLeft === 1 ? 'day' : 'days'} left in{' '}
-              {shortMonth(safe.month)}.
+              {formatMoney(Math.max(0, safe.remaining))} left of {formatMoney(safe.flexBudget)} flexible ·{' '}
+              {safe.daysLeft} {safe.daysLeft === 1 ? 'day' : 'days'} to go.
             </ThemedText>
           </Card>
 
-          <View style={styles.kpiGrid}>
-            <Stat
-              label={`Money in · ${shortMonth(model.latest)}`}
-              value={formatMoney(model.latestIncome)}
-              delta={model.latestIncome >= model.budget.monthlyIncome ? 'at/above plan' : 'below plan'}
-              trend={model.latestIncome >= model.budget.monthlyIncome ? 'up' : 'down'}
-              style={styles.kpiTile}
-            />
-            <Stat
-              label={`Net · ${shortMonth(model.latest)}`}
-              value={formatMoney(model.latestNet)}
-              delta={model.latestNet >= 0 ? 'saved' : 'overspent'}
-              trend={model.latestNet >= 0 ? 'up' : 'down'}
-              style={styles.kpiTile}
+          <View style={styles.rowBetween}>
+            <ThemedText type="smallBold">Actuals vs budget</ThemedText>
+            <MonthTicker
+              months={base.months}
+              value={month}
+              onChange={setMonth}
+              formatLabel={shortMonth}
             />
           </View>
 
+          <View style={styles.kpiRow}>
+            <TrendStat
+              label="Money in"
+              value={formatMoney(view.incomeM)}
+              deltaPct={pctVs(view.incomeM, view.budget.monthlyIncome)}
+              deltaAbs={signedMoney(view.incomeM - view.budget.monthlyIncome)}
+              note="vs plan"
+              style={styles.kpiTile}
+            />
+            <TrendStat
+              label="Money out"
+              value={formatMoney(view.spendM)}
+              deltaPct={pctVs(view.spendM, view.budget.totalExpenses)}
+              deltaAbs={signedMoney(view.spendM - view.budget.totalExpenses)}
+              note="vs plan"
+              goodWhenUp={false}
+              style={styles.kpiTile}
+            />
+          </View>
+          <TrendStat
+            label="Net saved"
+            value={formatMoney(view.netM)}
+            deltaPct={pctVs(view.netM, view.budget.monthlySavingsTarget)}
+            deltaAbs={signedMoney(view.netM - view.budget.monthlySavingsTarget)}
+            note="vs plan"
+          />
+
           <Card>
             <ThemedText type="smallBold">Net saved per month</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Green months you saved, red months you dipped in.
-            </ThemedText>
-            <TrendBars data={model.netSeries} valueLabel={moneyK} signed />
+            <TrendBars data={view.netSeries} signed />
           </Card>
 
           <BankSyncCard />
         </ScrollView>
       ) : (
         <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          <View style={styles.rowBetween}>
+            <ThemedText type="smallBold">Monthly spend · dotted = 3-mo avg</ThemedText>
+            <MonthTicker
+              months={base.months}
+              value={month}
+              onChange={setMonth}
+              formatLabel={shortMonth}
+            />
+          </View>
+
           <Card>
-            <ThemedText type="smallBold">Total monthly spend</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Last 6 months · latest highlighted.
-            </ThemedText>
-            <TrendBars data={model.spendSeries} valueLabel={moneyK} />
+            <TrendBars data={view.spendSeries} height={140} />
           </Card>
 
           <Card>
             <View style={styles.rowBetween}>
-              <ThemedText type="smallBold">Top categories</ThemedText>
+              <ThemedText type="smallBold">Top categories · {shortMonth(month)}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                {shortMonth(model.latest)} vs 3-mo avg
+                vs 3-mo avg
               </ThemedText>
             </View>
-            <RankedBars data={model.categories} valueLabel={(value) => formatMoney(value)} />
+            <RankedBars data={view.categories} valueLabel={(value) => formatMoney(value)} />
           </Card>
         </ScrollView>
       )}
@@ -210,15 +245,12 @@ const styles = StyleSheet.create({
     fontWeight: 800,
     letterSpacing: -1,
   },
-  kpiGrid: {
+  kpiRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: Spacing.three,
   },
   kpiTile: {
-    flexGrow: 1,
-    flexBasis: '45%',
-    minWidth: 140,
+    flex: 1,
   },
   rowBetween: {
     flexDirection: 'row',

@@ -121,6 +121,96 @@ export function StatRow({
   );
 }
 
+/** Compact KPI: value plus an inline trend (arrow + % + $ delta) so cards stay uncrowded. */
+export function TrendStat({
+  label,
+  value,
+  deltaPct,
+  deltaAbs,
+  note,
+  goodWhenUp = true,
+  style,
+}: {
+  label: string;
+  value: string;
+  deltaPct?: number;
+  deltaAbs?: string;
+  note?: string;
+  goodWhenUp?: boolean;
+  style?: ViewStyle;
+}) {
+  const theme = useTheme();
+  const hasDelta = deltaPct !== undefined;
+  const up = (deltaPct ?? 0) >= 0;
+  const color = !hasDelta ? theme.textSecondary : up === goodWhenUp ? theme.success : theme.danger;
+
+  return (
+    <Card style={StyleSheet.flatten([styles.statCard, style])}>
+      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+        {label}
+      </ThemedText>
+      <ThemedText style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
+        {value}
+      </ThemedText>
+      {hasDelta ? (
+        <ThemedText type="small" numberOfLines={1} style={{ color }}>
+          {up ? '▲' : '▼'} {Math.abs(deltaPct ?? 0).toFixed(0)}%
+          {deltaAbs ? ` (${deltaAbs})` : ''}
+          {note ? ` ${note}` : ''}
+        </ThemedText>
+      ) : note ? (
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+          {note}
+        </ThemedText>
+      ) : null}
+    </Card>
+  );
+}
+
+/** Compact ‹ month › stepper for browsing by month. */
+export function MonthTicker({
+  months,
+  value,
+  onChange,
+  formatLabel,
+}: {
+  months: string[];
+  value: string;
+  onChange: (month: string) => void;
+  formatLabel: (month: string) => string;
+}) {
+  const theme = useTheme();
+  const index = months.indexOf(value);
+  const canPrev = index > 0;
+  const canNext = index >= 0 && index < months.length - 1;
+
+  return (
+    <View
+      style={[
+        styles.ticker,
+        { borderColor: theme.borderStrong, backgroundColor: theme.backgroundElement },
+      ]}>
+      <Pressable
+        disabled={!canPrev}
+        hitSlop={10}
+        onPress={() => onChange(months[index - 1])}
+        style={styles.tickerButton}>
+        <ThemedText style={[styles.tickerArrow, { opacity: canPrev ? 1 : 0.3 }]}>‹</ThemedText>
+      </Pressable>
+      <ThemedText type="smallBold" numberOfLines={1}>
+        {formatLabel(value)}
+      </ThemedText>
+      <Pressable
+        disabled={!canNext}
+        hitSlop={10}
+        onPress={() => onChange(months[index + 1])}
+        style={styles.tickerButton}>
+        <ThemedText style={[styles.tickerArrow, { opacity: canNext ? 1 : 0.3 }]}>›</ThemedText>
+      </Pressable>
+    </View>
+  );
+}
+
 type PageHeadProps = {
   eyebrow?: string;
   title: string;
@@ -533,6 +623,26 @@ const styles = StyleSheet.create({
   },
   statRowValue: {
     flexShrink: 0,
+  },
+  ticker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    alignSelf: 'flex-start',
+    minWidth: 150,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+    gap: Spacing.two,
+  },
+  tickerButton: {
+    paddingHorizontal: Spacing.two,
+  },
+  tickerArrow: {
+    fontSize: 22,
+    lineHeight: 24,
+    fontWeight: 700,
   },
   pageHead: {
     flexDirection: 'row',

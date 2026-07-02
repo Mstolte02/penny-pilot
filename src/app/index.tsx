@@ -1,4 +1,5 @@
-import { Link } from 'expo-router';
+import { Link, type Href } from 'expo-router';
+import { useMemo } from 'react';
 import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,14 +8,52 @@ import { Card, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { budgetLines, formatMoney, goals, progress, reviewTransactions } from '@/data/sample-finance';
+import {
+  mobileBudgetPlan,
+  mobileSavingsConfig,
+  mobileTransactions,
+} from '@/data/personal-finance-template';
+import { reviewTransactions } from '@/data/sample-finance';
+import {
+  actualMonthlyNet,
+  formatMoney,
+  formatMonth,
+  homeGoalForecast,
+  monthlyIncome,
+  monthlySpend,
+  summarizeBudget,
+  uniqueMonths,
+} from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function HomeScreen() {
   const theme = useTheme();
-  const planned = budgetLines.reduce((sum, line) => sum + line.planned, 0);
-  const spent = budgetLines.reduce((sum, line) => sum + line.spent, 0);
-  const goal = goals[0];
+  const model = useMemo(() => {
+    const budget = summarizeBudget(mobileBudgetPlan, mobileTransactions);
+    const months = uniqueMonths(mobileTransactions);
+    const latestMonth = months[months.length - 1] ?? '';
+    const spend = monthlySpend(mobileTransactions);
+    const income = monthlyIncome(mobileTransactions);
+    const net = actualMonthlyNet(mobileTransactions);
+    const latestSpend = spend.find((row) => row.month === latestMonth)?.total ?? 0;
+    const latestIncome = income[latestMonth] ?? 0;
+    const latestNet = net[latestMonth] ?? 0;
+    const goal = homeGoalForecast({
+      transactions: mobileTransactions,
+      savings: mobileSavingsConfig,
+    });
+
+    return {
+      budget,
+      latestMonth,
+      latestSpend,
+      latestIncome,
+      latestNet,
+      goal,
+    };
+  }, []);
+  const budgetProgress =
+    model.budget.totalExpenses > 0 ? model.latestSpend / model.budget.totalExpenses : 0;
 
   return (
     <ThemedView style={styles.container}>
@@ -29,48 +68,64 @@ export default function HomeScreen() {
                 Today&apos;s flight path
               </ThemedText>
               <ThemedText themeColor="textSecondary">
-                Looks like we hit a little dining turbulence, but your home fund is still climbing.
+                Budget, review, and goal progress in one quick pass.
               </ThemedText>
             </View>
-            <PennyBadge expression="concerned" />
+            <PennyBadge expression={budgetProgress > 1 ? 'concerned' : 'onTrack'} />
           </View>
 
           <Card style={styles.heroCard}>
             <View style={styles.row}>
               <View>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Monthly spending
+                  {formatMonth(model.latestMonth)} spending
                 </ThemedText>
-                <ThemedText type="subtitle">{formatMoney(spent)}</ThemedText>
+                <ThemedText type="subtitle">{formatMoney(model.latestSpend)}</ThemedText>
               </View>
               <View style={[styles.statusBadge, { backgroundColor: theme.backgroundSelected }]}>
-                <ThemedText type="smallBold" themeColor="warning">
-                  On watch
+                <ThemedText type="smallBold" themeColor={budgetProgress > 1 ? 'warning' : 'success'}>
+                  {budgetProgress > 1 ? 'Over plan' : 'On track'}
                 </ThemedText>
               </View>
             </View>
-            <ProgressBar value={spent / planned} />
+            <ProgressBar value={budgetProgress} />
             <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(planned - spent)} left in your current budget plan.
+              {formatMoney(Math.max(0, model.budget.totalExpenses - model.latestSpend))} left
+              against the current monthly plan.
             </ThemedText>
           </Card>
 
           <View style={styles.grid}>
             <Card style={styles.metricCard}>
               <ThemedText type="small" themeColor="textSecondary">
-                To review
+                Money in
               </ThemedText>
-              <ThemedText type="subtitle">{reviewTransactions.length}</ThemedText>
-              <ThemedText type="small">Penny has guesses ready.</ThemedText>
+              <ThemedText type="subtitle">{formatMoney(model.latestIncome)}</ThemedText>
+              <ThemedText type="small">{formatMonth(model.latestMonth)}</ThemedText>
             </Card>
             <Card style={styles.metricCard}>
               <ThemedText type="small" themeColor="textSecondary">
-                Goal pace
+                Net
               </ThemedText>
-              <ThemedText type="subtitle">{formatMoney(goal.monthlyPace)}</ThemedText>
-              <ThemedText type="small">Projected monthly progress.</ThemedText>
+              <ThemedText type="subtitle">{formatMoney(model.latestNet)}</ThemedText>
+              <ThemedText type="small">Income minus spend.</ThemedText>
             </Card>
           </View>
+
+          <Card>
+            <View style={styles.actionHeader}>
+              <View style={styles.actionCopy}>
+                <ThemedText type="smallBold">Next best actions</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  The personal app&apos;s big sections are becoming smaller, phone-sized loops.
+                </ThemedText>
+              </View>
+              <PennyBadge expression="thinking" animated={false} />
+            </View>
+            <ActionRow title="Review transactions" detail={`${reviewTransactions.length} sample items waiting`} href="/transactions" />
+            <ActionRow title="Tune the budget" detail={`${formatMoney(model.budget.variableTotal)} variable forecast`} href="/budget" />
+            <ActionRow title="Check home runway" detail={`Target: ${model.goal.targetDateLabel}`} href="/goals" />
+          </Card>
 
           <Card>
             <View style={styles.setupRow}>
@@ -92,11 +147,10 @@ export default function HomeScreen() {
 
           <Card>
             <ThemedText type="smallBold">First home</ThemedText>
-            <ProgressBar value={progress(goal.saved, goal.target)} />
+            <ProgressBar value={model.goal.progress} />
             <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(goal.saved)} saved of {formatMoney(goal.target)}. Current projection:
-              {' '}
-              {goal.eta}.
+              {formatMoney(model.goal.currentSavings)} saved of {formatMoney(model.goal.cashNeeded)}.
+              Current projection: {model.goal.targetDateLabel}.
             </ThemedText>
             <View style={styles.actions}>
               <PillButton tone="primary">Review plan</PillButton>
@@ -106,6 +160,22 @@ export default function HomeScreen() {
         </SafeAreaView>
       </ScrollView>
     </ThemedView>
+  );
+}
+
+function ActionRow({ title, detail, href }: { title: string; detail: string; href: Href }) {
+  return (
+    <Link href={href} asChild>
+      <View style={styles.actionRow}>
+        <View style={styles.actionCopy}>
+          <ThemedText type="smallBold">{title}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            {detail}
+          </ThemedText>
+        </View>
+        <ThemedText type="smallBold">Open</ThemedText>
+      </View>
+    </Link>
   );
 }
 
@@ -159,6 +229,22 @@ const styles = StyleSheet.create({
   },
   metricCard: {
     flex: 1,
+  },
+  actionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+  },
+  actionRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  actionCopy: {
+    flex: 1,
+    gap: Spacing.half,
   },
   actions: {
     flexDirection: 'row',

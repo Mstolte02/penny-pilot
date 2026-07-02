@@ -35,7 +35,7 @@ export default function AppTabs() {
             <TabButton>Setup</TabButton>
           </TabTrigger>
           <TabTrigger name="auth" href="/auth" asChild>
-            <TabButton>Sign in</TabButton>
+            <TabButton>Account</TabButton>
           </TabTrigger>
           <TabTrigger name="authCallback" href="/auth/callback" asChild>
             <View style={styles.hiddenTab} />

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,98 +14,90 @@ import {
   Card,
   PANEL_BOTTOM_INSET,
   PennyBadge,
+  Pill,
   PillButton,
   Screen,
+  SpeechBubble,
   ToggleChip,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { TransactionSourceCard } from '@/components/transaction-source-card';
 import { Spacing } from '@/constants/theme';
+import { emptyStates } from '@/constants/penny-voice';
+import { mobileBudgetPlan, mobileTransactions } from '@/data/personal-finance-template';
 import type { Category, Subcategory, Transaction } from '@/domain/finance';
+import { formatMoney } from '@/domain/mobile-finance';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { categorizationService, financeDataService } from '@/services';
 import type { CategorizationSuggestion } from '@/services/contracts';
 
+const SEGMENTS = [
+  { label: 'Transactions', value: 'feed' },
+  { label: 'Subscriptions', value: 'subscriptions' },
+];
+
 type CategoryWithSubcategories = Category & { subcategories: Subcategory[] };
 
 function formatTransactionMoney(value: number) {
-  return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
+  return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
+function dayLabel(date: string) {
+  return new Date(`${date}T12:00:00`).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
   });
 }
 
-function categoryKindLabel(kind: Category['kind']) {
-  const labels: Record<Category['kind'], string> = {
-    debt: 'Debt',
-    fixed: 'Fixed',
-    income: 'Income',
-    savings: 'Savings',
-    transfer: 'Transfer',
-    variable: 'Variable',
-  };
-
-  return labels[kind];
-}
-
-function confidenceLabel(confidence: Transaction['categoryConfidence']) {
-  if (confidence === 'none') {
-    return 'Needs a first read';
-  }
-
-  return `${confidence.charAt(0).toUpperCase()}${confidence.slice(1)} confidence`;
-}
-
-function pickFallbackCategory(categories: CategoryWithSubcategories[]) {
-  return (
-    categories.find((category) => category.kind === 'variable') ??
-    categories.find((category) => category.kind !== 'income' && category.kind !== 'transfer') ??
-    categories[0] ??
-    null
-  );
-}
-
 function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return 'Transaction review is not available right now.';
+  return error instanceof Error ? error.message : 'The radar is not available right now.';
 }
 
-export default function TransactionsScreen() {
+/**
+ * Recurring charges, revealed. Fixed budget lines are the prototype's stand-in for
+ * detected subscriptions; due days come from the latest matching transaction when
+ * one exists, with a stable spread otherwise.
+ */
+function detectSubscriptions() {
+  return mobileBudgetPlan.sections
+    .flatMap((section) => section.lines.map((line) => ({ section: section.title, line })))
+    .filter(({ line }) => line.type === 'fixed' && (line.monthly ?? 0) > 0 && line.name !== 'Fun Money')
+    .map(({ section, line }, index) => {
+      const lastPosting = [...mobileTransactions]
+        .reverse()
+        .find((transaction) => transaction.item === line.name);
+      return {
+        id: `${section}::${line.name}`,
+        name: line.name,
+        section,
+        monthly: line.monthly ?? 0,
+        dueDay: lastPosting ? Number(lastPosting.date.slice(8, 10)) : ((index * 7) % 27) + 2,
+      };
+    })
+    .sort((a, b) => a.dueDay - b.dueDay);
+}
+
+export default function RadarScreen() {
   const theme = useTheme();
+  const [active, setActive] = useState('feed');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<CategoryWithSubcategories[]>([]);
-  const [suggestion, setSuggestion] = useState<CategorizationSuggestion | null>(null);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null);
-  const [rememberMerchant, setRememberMerchant] = useState(true);
-  const [completedCount, setCompletedCount] = useState(0);
+  const [suggestions, setSuggestions] = useState<Record<string, CategorizationSuggestion>>({});
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sortedCount, setSortedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cancelFlags, setCancelFlags] = useState<Record<string, boolean>>({});
 
-  const current = transactions[0] ?? null;
-  const selectedCategory = useMemo(
-    () => categories.find((category) => category.id === selectedCategoryId) ?? null,
-    [categories, selectedCategoryId]
-  );
-  const selectedSubcategory = useMemo(
-    () =>
-      selectedCategory?.subcategories.find(
-        (subcategory) => subcategory.id === selectedSubcategoryId
-      ) ?? null,
-    [selectedCategory, selectedSubcategoryId]
-  );
+  const subscriptions = useMemo(() => detectSubscriptions(), []);
+  const monthlyBurn = subscriptions.reduce((sum, subscription) => sum + subscription.monthly, 0);
 
-  const loadReviewData = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
-    if (mode === 'refresh') {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
+  const loadRadar = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+    if (mode === 'refresh') setRefreshing(true);
+    else setLoading(true);
     setError(null);
 
     try {
@@ -111,10 +105,27 @@ export default function TransactionsScreen() {
         financeDataService.listCategories(),
         financeDataService.listTransactionsNeedingReview(),
       ]);
+      const loadedSuggestions = await Promise.all(
+        loadedTransactions.map(async (transaction) => {
+          try {
+            return await categorizationService.suggestCategory(transaction);
+          } catch {
+            return null;
+          }
+        })
+      );
 
       setCategories(loadedCategories);
       setTransactions(loadedTransactions);
-      setCompletedCount(0);
+      setSuggestions(
+        Object.fromEntries(
+          loadedSuggestions
+            .filter((suggestion): suggestion is CategorizationSuggestion => suggestion !== null)
+            .map((suggestion) => [suggestion.transactionId, suggestion])
+        )
+      );
+      setSortedCount(0);
+      setExpandedId(null);
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -124,324 +135,341 @@ export default function TransactionsScreen() {
   }, []);
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      void loadReviewData();
-    }, 0);
-
+    const timeout = setTimeout(() => void loadRadar(), 0);
     return () => clearTimeout(timeout);
-  }, [loadReviewData]);
+  }, [loadRadar]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadSuggestion() {
-      setSuggestion(null);
-
-      if (!current) {
-        setSelectedCategoryId(null);
-        setSelectedSubcategoryId(null);
-        return;
-      }
-
-      try {
-        const nextSuggestion = await categorizationService.suggestCategory(current);
-        if (cancelled) {
-          return;
-        }
-
-        setSuggestion(nextSuggestion);
-        setSelectedCategoryId(nextSuggestion.categoryId);
-        setSelectedSubcategoryId(nextSuggestion.subcategoryId);
-      } catch {
-        if (cancelled) {
-          return;
-        }
-
-        const fallback = pickFallbackCategory(categories);
-        setSelectedCategoryId(current.categoryId ?? fallback?.id ?? null);
-        setSelectedSubcategoryId(
-          current.subcategoryId ?? fallback?.subcategories[0]?.id ?? null
-        );
-      }
-    }
-
-    void loadSuggestion();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [categories, current]);
-
-  const chooseCategory = (category: CategoryWithSubcategories) => {
-    setSelectedCategoryId(category.id);
-    setSelectedSubcategoryId(category.subcategories[0]?.id ?? null);
+  const removeTransaction = (id: string) => {
+    setTransactions((current) => current.filter((transaction) => transaction.id !== id));
+    setSortedCount((count) => count + 1);
+    setExpandedId((current) => (current === id ? null : current));
   };
 
-  const finishCurrentTransaction = () => {
-    setTransactions((currentTransactions) => currentTransactions.slice(1));
-    setCompletedCount((count) => count + 1);
-    setRememberMerchant(true);
-  };
-
-  const approveSelection = async () => {
-    if (!current || !selectedCategoryId) {
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
+  const confirmTransaction = async (transaction: Transaction) => {
+    const suggestion = suggestions[transaction.id];
+    if (!suggestion) return;
 
     try {
-      if (
-        rememberMerchant &&
-        suggestion &&
-        suggestion.categoryId === selectedCategoryId &&
-        suggestion.subcategoryId === selectedSubcategoryId
-      ) {
-        await categorizationService.confirmCategory({
-          ...suggestion,
-          confidence: suggestion.confidence === 'none' ? 'medium' : suggestion.confidence,
-        });
-      } else {
-        await categorizationService.overrideCategory({
-          transactionId: current.id,
-          categoryId: selectedCategoryId,
-          subcategoryId: selectedSubcategoryId,
-          rememberMerchant,
-        });
-      }
-
-      finishCurrentTransaction();
+      await categorizationService.confirmCategory({
+        ...suggestion,
+        confidence: suggestion.confidence === 'none' ? 'medium' : suggestion.confidence,
+      });
     } catch (saveError) {
       setError(getErrorMessage(saveError));
-    } finally {
-      setSaving(false);
     }
   };
 
-  const skipCurrent = () => {
-    if (transactions.length <= 1) {
-      return;
+  const overrideTransaction = async (
+    transaction: Transaction,
+    categoryId: string,
+    subcategoryId: string | null
+  ) => {
+    try {
+      await categorizationService.overrideCategory({
+        transactionId: transaction.id,
+        categoryId,
+        subcategoryId,
+        rememberMerchant: true,
+      });
+    } catch (saveError) {
+      setError(getErrorMessage(saveError));
     }
-
-    setTransactions((currentTransactions) => [
-      ...currentTransactions.slice(1),
-      currentTransactions[0],
-    ]);
-    setRememberMerchant(true);
   };
 
-  const queuePreview = transactions.slice(1, 5);
-  const remainingCount = transactions.length;
+  const groups = useMemo(() => {
+    const byDay = new Map<string, Transaction[]>();
+    for (const transaction of transactions) {
+      const day = byDay.get(transaction.date) ?? [];
+      day.push(transaction);
+      byDay.set(transaction.date, day);
+    }
+    return Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [transactions]);
+
+  const categoryNameFor = (suggestion: CategorizationSuggestion | undefined) => {
+    if (!suggestion) return 'Needs a read';
+    const category = categories.find((entry) => entry.id === suggestion.categoryId);
+    const subcategory = category?.subcategories.find(
+      (entry) => entry.id === suggestion.subcategoryId
+    );
+    return category ? `${category.name}${subcategory ? ` › ${subcategory.name}` : ''}` : 'Needs a read';
+  };
 
   return (
     <Screen
-      eyebrow="Review"
-      title="Review"
-      mascot={<PennyBadge expression={remainingCount === 0 ? 'celebrating' : 'thinking'} />}>
-      <ScrollView
-        style={styles.panel}
-        contentContainerStyle={styles.body}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => void loadReviewData('refresh')}
-            tintColor={theme.primary}
-          />
-        }>
-        <View style={styles.statusRow}>
-          <View style={[styles.statusPill, { backgroundColor: theme.backgroundSelected }]}>
-            <ThemedText type="smallBold" numberOfLines={1}>
-              {remainingCount} to review
-            </ThemedText>
+      eyebrow="Radar"
+      title="Radar"
+      subtitle="Every transaction on the scope"
+      mascot={<PennyBadge expression={transactions.length === 0 ? 'celebrating' : 'thinking'} />}
+      segments={SEGMENTS}
+      active={active}
+      onSelect={setActive}>
+      {active === 'feed' ? (
+        <ScrollView
+          style={styles.panel}
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void loadRadar('refresh')}
+              tintColor={theme.primary}
+            />
+          }>
+          <View style={styles.statusRow}>
+            <Pill label={`${transactions.length} on radar`} tone="info" />
+            <Pill label={`${sortedCount} sorted`} tone="good" />
           </View>
-          <View style={[styles.statusPill, { backgroundColor: theme.backgroundElement }]}>
-            <ThemedText type="smallBold" themeColor="success" numberOfLines={1}>
-              {completedCount} sorted
+
+          {error ? (
+            <Card style={styles.gap}>
+              <SpeechBubble expression="concerned">{emptyStates.syncFailed}</SpeechBubble>
+              <ThemedText type="small" themeColor="textSecondary">
+                {error}
+              </ThemedText>
+              <PillButton onPress={() => void loadRadar('refresh')}>Try again</PillButton>
+            </Card>
+          ) : null}
+
+          {loading ? (
+            <Card style={styles.loadingCard}>
+              <ActivityIndicator color={theme.primary} />
+              <ThemedText type="smallBold">Scanning…</ThemedText>
+            </Card>
+          ) : null}
+
+          {!loading && transactions.length === 0 && !error ? (
+            <Card style={styles.gap}>
+              <SpeechBubble expression="celebrating">{emptyStates.allReviewed}</SpeechBubble>
+              <PillButton onPress={() => void loadRadar('refresh')}>Scan again</PillButton>
+            </Card>
+          ) : null}
+
+          {groups.map(([date, dayTransactions]) => (
+            <View key={date} style={styles.dayGroup}>
+              <ThemedText type="smallBold" themeColor="textSecondary" style={styles.dayHeader}>
+                {dayLabel(date)}
+              </ThemedText>
+              {dayTransactions.map((transaction) => (
+                <RadarRow
+                  key={transaction.id}
+                  transaction={transaction}
+                  guess={categoryNameFor(suggestions[transaction.id])}
+                  rationale={suggestions[transaction.id]?.rationale}
+                  expanded={expandedId === transaction.id}
+                  categories={categories}
+                  onConfirm={() => {
+                    void confirmTransaction(transaction);
+                    removeTransaction(transaction.id);
+                  }}
+                  onToggleExpand={() =>
+                    setExpandedId((current) => (current === transaction.id ? null : transaction.id))
+                  }
+                  onRecategorize={(categoryId, subcategoryId) => {
+                    void overrideTransaction(transaction, categoryId, subcategoryId);
+                    removeTransaction(transaction.id);
+                  }}
+                />
+              ))}
+            </View>
+          ))}
+
+          <TransactionSourceCard />
+        </ScrollView>
+      ) : (
+        <ScrollView
+          style={styles.panel}
+          contentContainerStyle={styles.body}
+          showsVerticalScrollIndicator={false}>
+          <Card style={[styles.burnCard, { borderColor: theme.primary }]}>
+            <ThemedText type="small" themeColor="textSecondary">
+              Recurring charges · monthly burn
             </ThemedText>
-          </View>
-        </View>
-
-        <TransactionSourceCard />
-
-        {error ? (
-          <Card style={styles.gap}>
-            <ThemedText type="smallBold" themeColor="warning">
-              Review needs attention
+            <ThemedText type="hero" style={[styles.burnValue, { color: theme.primary }]}>
+              {formatMoney(monthlyBurn)}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              {error}
+              {subscriptions.length} enchantments on the calendar · {formatMoney(monthlyBurn * 12)}
+              /yr
             </ThemedText>
-            <PillButton onPress={() => void loadReviewData('refresh')}>Try again</PillButton>
           </Card>
-        ) : null}
 
-        {loading ? (
-          <Card style={styles.loadingCard}>
-            <ActivityIndicator color={theme.primary} />
-            <ThemedText type="smallBold">Loading transactions...</ThemedText>
-          </Card>
-        ) : null}
-
-        {!loading && !current ? (
-          <Card style={styles.gap}>
-            <View style={styles.emptyRow}>
-              <View style={styles.emptyCopy}>
-                <ThemedText type="subtitle">All caught up</ThemedText>
-                <ThemedText themeColor="textSecondary">
-                  When new bank transactions sync in, Penny will queue them here for review.
-                </ThemedText>
-              </View>
-              <PennyBadge expression="celebrating" animated={false} />
-            </View>
-            <PillButton onPress={() => void loadReviewData('refresh')}>Refresh</PillButton>
-          </Card>
-        ) : null}
-
-        {!loading && current ? (
-          <Card style={styles.gap}>
-            <View style={styles.reviewTop}>
-              <View style={styles.reviewCopy}>
-                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                  {current.date}
-                </ThemedText>
-                <ThemedText type="subtitle" style={styles.merchant} numberOfLines={1}>
-                  {current.merchantName}
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                  {current.originalDescription}
-                </ThemedText>
-              </View>
-              <View style={[styles.amountBadge, { backgroundColor: theme.backgroundSelected }]}>
-                <ThemedText
-                  type="subtitle"
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.6}>
-                  {formatTransactionMoney(current.amount)}
-                </ThemedText>
-                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                  {current.kind}
-                </ThemedText>
-              </View>
-            </View>
-
-            <View style={[styles.guessBox, { backgroundColor: theme.backgroundSelected }]}>
-              <ThemedText type="small" themeColor="textSecondary">
-                Penny&apos;s current read
-              </ThemedText>
-              <ThemedText type="smallBold" numberOfLines={1}>
-                {selectedCategory
-                  ? `${selectedCategory.name}${selectedSubcategory ? ` › ${selectedSubcategory.name}` : ''}`
-                  : 'Choose a category'}
-              </ThemedText>
-              <ThemedText type="small" themeColor="success">
-                {suggestion ? suggestion.rationale : confidenceLabel(current.categoryConfidence)}
-              </ThemedText>
-            </View>
-
-            <View style={styles.section}>
-              <ThemedText type="smallBold">Category</ThemedText>
-              <View style={styles.categoryGrid}>
-                {categories.map((category) => {
-                  const selected = category.id === selectedCategoryId;
-
-                  return (
+          {subscriptions.length === 0 ? (
+            <SpeechBubble expression="thinking">{emptyStates.noSubscriptions}</SpeechBubble>
+          ) : (
+            <Card style={styles.gap}>
+              {subscriptions.map((subscription, index) => (
+                <View
+                  key={subscription.id}
+                  style={[styles.subscriptionRow, index > 0 && { borderTopColor: theme.border, borderTopWidth: 1 }]}>
+                  <View style={[styles.dueBadge, { backgroundColor: theme.backgroundSelected }]}>
+                    <ThemedText type="smallBold" style={{ color: theme.accent }}>
+                      {subscription.dueDay}
+                    </ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" style={styles.dueBadgeLabel}>
+                      of mo
+                    </ThemedText>
+                  </View>
+                  <View style={styles.subscriptionCopy}>
+                    <ThemedText type="smallBold" numberOfLines={1}>
+                      {subscription.name}
+                    </ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                      {subscription.section}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.subscriptionEnd}>
+                    <ThemedText type="money">{formatMoney(subscription.monthly)}</ThemedText>
                     <Pressable
-                      key={category.id}
-                      onPress={() => chooseCategory(category)}
-                      style={({ pressed }) => [
-                        styles.categoryButton,
-                        {
-                          backgroundColor: selected ? theme.primary : theme.backgroundElement,
-                          borderColor: selected ? theme.primary : theme.border,
-                          opacity: pressed ? 0.75 : 1,
-                        },
-                      ]}>
-                      <ThemedText
-                        type="smallBold"
-                        numberOfLines={1}
-                        style={{ color: selected ? '#FFF8E8' : theme.text }}>
-                        {category.name}
-                      </ThemedText>
+                      onPress={() =>
+                        setCancelFlags((current) => ({
+                          ...current,
+                          [subscription.id]: !current[subscription.id],
+                        }))
+                      }>
                       <ThemedText
                         type="small"
-                        style={{ color: selected ? '#FFF8E8' : theme.textSecondary }}>
-                        {categoryKindLabel(category.kind)}
+                        style={{
+                          color: cancelFlags[subscription.id] ? theme.danger : theme.textSecondary,
+                        }}>
+                        {cancelFlags[subscription.id] ? 'Cancel reminder set' : 'Remind me to cancel'}
                       </ThemedText>
                     </Pressable>
-                  );
-                })}
-              </View>
-            </View>
+                  </View>
+                </View>
+              ))}
+            </Card>
+          )}
 
-            {selectedCategory && selectedCategory.subcategories.length > 0 ? (
-              <View style={styles.section}>
-                <ThemedText type="smallBold">Subcategory</ThemedText>
-                <View style={styles.chips}>
-                  {selectedCategory.subcategories.map((subcategory) => (
+          <SpeechBubble expression="default">
+            Forgotten subscriptions are the sneakiest leaks in a budget. Flag anything you
+            don&apos;t recognize.
+          </SpeechBubble>
+        </ScrollView>
+      )}
+    </Screen>
+  );
+}
+
+/**
+ * One transaction on the scope. Confirming fires the contrail flick — the one
+ * recurring chore in the app should feel fast and satisfying.
+ */
+function RadarRow({
+  transaction,
+  guess,
+  rationale,
+  expanded,
+  categories,
+  onConfirm,
+  onToggleExpand,
+  onRecategorize,
+}: {
+  transaction: Transaction;
+  guess: string;
+  rationale?: string;
+  expanded: boolean;
+  categories: CategoryWithSubcategories[];
+  onConfirm: () => void;
+  onToggleExpand: () => void;
+  onRecategorize: (categoryId: string, subcategoryId: string | null) => void;
+}) {
+  const theme = useTheme();
+  const reducedMotion = useReducedMotion();
+  const [slide] = useState(() => new Animated.Value(0));
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const selectedCategory = categories.find((category) => category.id === selectedCategoryId) ?? null;
+
+  const confirmWithContrail = () => {
+    if (reducedMotion) {
+      onConfirm();
+      return;
+    }
+    Animated.timing(slide, {
+      toValue: 1,
+      duration: 240,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start(() => onConfirm());
+  };
+
+  return (
+    <Animated.View
+      style={{
+        opacity: slide.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+        transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [0, 96] }) }],
+      }}>
+      <Card style={styles.rowCard}>
+        <View style={styles.rowMain}>
+          <Pressable style={styles.rowCopy} onPress={onToggleExpand}>
+            <ThemedText type="smallBold" numberOfLines={1}>
+              {transaction.merchantName}
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.primary }} numberOfLines={1}>
+              {guess}
+            </ThemedText>
+            {rationale ? (
+              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                {rationale}
+              </ThemedText>
+            ) : null}
+          </Pressable>
+          <ThemedText type="money" style={styles.rowAmount}>
+            {formatTransactionMoney(transaction.amount)}
+          </ThemedText>
+          <Pressable
+            accessibilityLabel={`Confirm category for ${transaction.merchantName}`}
+            onPress={confirmWithContrail}
+            style={({ pressed }) => [
+              styles.confirmButton,
+              { backgroundColor: theme.primary, opacity: pressed ? 0.75 : 1 },
+            ]}>
+            <ThemedText type="smallBold" style={{ color: theme.onPrimary, fontSize: 17 }}>
+              ✓
+            </ThemedText>
+          </Pressable>
+        </View>
+
+        {expanded ? (
+          <View style={styles.recategorize}>
+            <ThemedText type="small" themeColor="textSecondary">
+              File it somewhere else:
+            </ThemedText>
+            <View style={styles.chips}>
+              {categories.map((category) => (
+                <ToggleChip
+                  key={category.id}
+                  label={category.name}
+                  selected={category.id === selectedCategoryId}
+                  onPress={() =>
+                    selectedCategoryId === category.id && category.subcategories.length === 0
+                      ? onRecategorize(category.id, null)
+                      : setSelectedCategoryId(category.id)
+                  }
+                />
+              ))}
+            </View>
+            {selectedCategory ? (
+              <View style={styles.chips}>
+                {selectedCategory.subcategories.length === 0 ? (
+                  <PillButton tone="primary" onPress={() => onRecategorize(selectedCategory.id, null)}>
+                    File under {selectedCategory.name}
+                  </PillButton>
+                ) : (
+                  selectedCategory.subcategories.map((subcategory) => (
                     <ToggleChip
                       key={subcategory.id}
                       label={subcategory.name}
-                      selected={subcategory.id === selectedSubcategoryId}
-                      onPress={() => setSelectedSubcategoryId(subcategory.id)}
+                      onPress={() => onRecategorize(selectedCategory.id, subcategory.id)}
                     />
-                  ))}
-                </View>
+                  ))
+                )}
               </View>
             ) : null}
-
-            <View style={styles.rememberRow}>
-              <View style={styles.rememberCopy}>
-                <ThemedText type="smallBold">Remember this merchant</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Reuse this category next time Penny sees a similar merchant.
-                </ThemedText>
-              </View>
-              <ToggleChip
-                label={rememberMerchant ? 'On' : 'Off'}
-                selected={rememberMerchant}
-                onPress={() => setRememberMerchant((value) => !value)}
-              />
-            </View>
-
-            <View style={styles.actions}>
-              <PillButton
-                tone="primary"
-                disabled={saving || !selectedCategoryId}
-                onPress={() => void approveSelection()}>
-                {saving ? 'Saving...' : 'Approve'}
-              </PillButton>
-              <PillButton disabled={saving || transactions.length <= 1} onPress={skipCurrent}>
-                Skip
-              </PillButton>
-            </View>
-          </Card>
+          </View>
         ) : null}
-
-        {queuePreview.length > 0 ? (
-          <Card>
-            <ThemedText type="smallBold">Up next</ThemedText>
-            {queuePreview.map((transaction) => (
-              <View key={transaction.id} style={styles.queueRow}>
-                <View style={styles.queueCopy}>
-                  <ThemedText type="smallBold" numberOfLines={1}>
-                    {transaction.merchantName}
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                    {transaction.date}
-                  </ThemedText>
-                </View>
-                <ThemedText type="smallBold" numberOfLines={1}>
-                  {formatTransactionMoney(transaction.amount)}
-                </ThemedText>
-              </View>
-            ))}
-          </Card>
-        ) : null}
-      </ScrollView>
-    </Screen>
+      </Card>
+    </Animated.View>
   );
 }
 
@@ -458,14 +486,7 @@ const styles = StyleSheet.create({
   },
   statusRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: Spacing.two,
-  },
-  statusPill: {
-    minHeight: 36,
-    borderRadius: 18,
-    paddingHorizontal: Spacing.three,
-    justifyContent: 'center',
   },
   loadingCard: {
     minHeight: 140,
@@ -473,86 +494,77 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.three,
   },
-  emptyRow: {
+  dayGroup: {
+    gap: Spacing.two,
+  },
+  dayHeader: {
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    fontSize: 12,
+  },
+  rowCard: {
+    gap: Spacing.two,
+    paddingVertical: Spacing.two,
+  },
+  rowMain: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
+    gap: Spacing.two,
   },
-  emptyCopy: {
-    flex: 1,
-    gap: Spacing.one,
-  },
-  reviewTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.three,
-  },
-  reviewCopy: {
+  rowCopy: {
     flex: 1,
     minWidth: 0,
-    gap: Spacing.one,
+    gap: 1,
   },
-  merchant: {
-    fontSize: 26,
-    lineHeight: 30,
+  rowAmount: {
+    flexShrink: 0,
   },
-  amountBadge: {
-    width: 112,
-    borderRadius: 16,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
-    alignItems: 'flex-end',
+  confirmButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  guessBox: {
-    borderRadius: 16,
-    padding: Spacing.three,
-    gap: Spacing.one,
-  },
-  section: {
+  recategorize: {
     gap: Spacing.two,
-  },
-  categoryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  categoryButton: {
-    minHeight: 72,
-    flexBasis: '48%',
-    flexGrow: 1,
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: Spacing.three,
-    justifyContent: 'space-between',
   },
   chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.two,
   },
-  rememberRow: {
+  burnCard: {
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  burnValue: {
+    fontSize: 40,
+    lineHeight: 46,
+  },
+  subscriptionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
-  },
-  rememberCopy: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  actions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  queueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     gap: Spacing.two,
     paddingTop: Spacing.two,
   },
-  queueCopy: {
+  dueBadge: {
+    width: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    paddingVertical: Spacing.one,
+  },
+  dueBadgeLabel: {
+    fontSize: 10,
+    lineHeight: 12,
+  },
+  subscriptionCopy: {
     flex: 1,
     minWidth: 0,
+    gap: 1,
+  },
+  subscriptionEnd: {
+    alignItems: 'flex-end',
+    gap: 2,
   },
 });

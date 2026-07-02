@@ -1,16 +1,19 @@
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Card, PennyBadge, PillButton } from '@/components/penny-ui';
+import { Card, PennyBadge, PillButton, SpeechBubble } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { env } from '@/config/env';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { notificationTemplates } from '@/constants/penny-voice';
 import type { UserProfile } from '@/domain/finance';
 import { authService } from '@/services';
 
-export default function AuthScreen() {
+export default function AccountScreen() {
+  const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [status, setStatus] = useState<string>('Checking session...');
   const [busy, setBusy] = useState(false);
@@ -73,26 +76,21 @@ export default function AuthScreen() {
           <View style={styles.header}>
             <View style={styles.headerCopy}>
               <ThemedText type="smallBold" themeColor="primary">
-                Account
+                Penny&apos;s corner
               </ThemedText>
               <ThemedText type="subtitle" style={styles.title}>
-                Sign in to sync
+                Settings & account
               </ThemedText>
               <ThemedText themeColor="textSecondary">
-                Penny Pilot uses Supabase Auth for Apple and Google sign-in.
+                Everything that isn&apos;t flying: account, notifications, and re-running setup.
               </ThemedText>
             </View>
             <PennyBadge expression="happy" />
           </View>
 
-          <Card>
-            <ThemedText type="smallBold">Current mode</ThemedText>
-            <ThemedText themeColor="textSecondary">
-              {env.dataSource === 'supabase'
-                ? 'Supabase mode is enabled. Social providers must be configured in Supabase.'
-                : 'Mock mode is enabled. Buttons use the demo user until Supabase mode is turned on.'}
-            </ThemedText>
-          </Card>
+          <SpeechBubble expression="default">
+            You found the gear. What do you need, captain?
+          </SpeechBubble>
 
           <Card>
             <ThemedText type="smallBold">{user ? 'Signed in' : 'No active session'}</ThemedText>
@@ -109,6 +107,39 @@ export default function AuthScreen() {
               <PillButton onPress={() => void signIn('apple')}>Continue with Apple</PillButton>
               {user && <PillButton onPress={() => void signOut()}>Sign out</PillButton>}
             </View>
+          </Card>
+
+          <Card>
+            <ThemedText type="smallBold">Morning briefing</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              One gold-on-navy line at 8am, factual and kind — never a shame notification. Example:
+            </ThemedText>
+            <ThemedText type="small" themeColor="primary">
+              “{notificationTemplates.morningBriefing('$34')}”
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Push delivery is wired up once notifications land; the copy already lives in the
+              design system.
+            </ThemedText>
+          </Card>
+
+          <Card>
+            <ThemedText type="smallBold">Run setup again</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Adding an account or starting fresh? Wizard Penny briefly returns. (“You rang?”)
+            </ThemedText>
+            <View style={styles.actions}>
+              <PillButton onPress={() => router.push('/setup')}>Summon the wizard</PillButton>
+            </View>
+          </Card>
+
+          <Card>
+            <ThemedText type="smallBold">Data mode</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {env.dataSource === 'supabase'
+                ? 'Supabase mode is enabled. Social providers must be configured in Supabase.'
+                : 'Mock mode is enabled. Buttons use the demo user until Supabase mode is turned on.'}
+            </ThemedText>
           </Card>
         </SafeAreaView>
       </ScrollView>

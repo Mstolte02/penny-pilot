@@ -1,207 +1,215 @@
-import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { BankSyncCard } from '@/components/bank-sync-card';
-import { RankedBars, TrendBars } from '@/components/mini-charts';
 import {
+  AltitudeArc,
   Card,
-  MonthTicker,
   PANEL_BOTTOM_INSET,
   PennyBadge,
   Pill,
   ProgressBar,
   Screen,
-  TrendStat,
+  SpeechBubble,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
-import { colorForCategory, Spacing } from '@/constants/theme';
-import { mobileBudgetPlan, mobileTransactions } from '@/data/personal-finance-template';
+import { Spacing } from '@/constants/theme';
+import { SETUP_COMPLETE_KEY } from '@/constants/penny-voice';
+import { mobileBudgetPlan, mobileSavingsConfig, mobileTransactions } from '@/data/personal-finance-template';
 import {
-  actualMonthlyNet,
+  daysInMonthOf,
   formatMoney,
-  formatMonth,
-  mean,
-  monthlyIncome,
-  monthlySpend,
+  homeGoalForecast,
   safeToSpendToday,
-  summarizeBudget,
-  uniqueMonths,
 } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
 
-const SEGMENTS = [
-  { label: 'Overview', value: 'overview' },
-  { label: 'Spending', value: 'spending' },
-];
+type UpcomingBill = {
+  name: string;
+  amount: number;
+  dueDay: number;
+  monthOffset: 0 | 1;
+};
 
-function shortMonth(month: string) {
-  return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
+/**
+ * Fixed budget lines double as the bill radar. Due days come from the most recent
+ * matching transaction when one exists; otherwise they get a stable spread so the
+ * prototype always has a believable "next bill".
+ */
+function upcomingBills(dayOfMonth: number): UpcomingBill[] {
+  const bills = mobileBudgetPlan.sections
+    .flatMap((section) => section.lines)
+    .filter((line) => line.type === 'fixed' && (line.monthly ?? 0) > 0)
+    .map((line, index) => {
+      const lastPosting = [...mobileTransactions]
+        .reverse()
+        .find((transaction) => transaction.item === line.name);
+      const dueDay = lastPosting ? Number(lastPosting.date.slice(8, 10)) : ((index * 7) % 27) + 2;
+      return { name: line.name, amount: line.monthly ?? 0, dueDay };
+    });
+
+  return bills
+    .map<UpcomingBill>((bill) => ({
+      ...bill,
+      monthOffset: bill.dueDay >= dayOfMonth ? 0 : 1,
+    }))
+    .sort((a, b) => a.monthOffset - b.monthOffset || a.dueDay - b.dueDay);
 }
 
-function pctVs(actual: number, target: number) {
-  return target > 0 ? ((actual - target) / target) * 100 : undefined;
-}
-
-export default function TodayScreen() {
+export default function CockpitScreen() {
+  const router = useRouter();
   const theme = useTheme();
-  const [active, setActive] = useState('overview');
 
-  const base = useMemo(() => {
-    const budget = summarizeBudget(mobileBudgetPlan, mobileTransactions);
-    const months = uniqueMonths(mobileTransactions);
-    const spends = monthlySpend(mobileTransactions);
-    const income = monthlyIncome(mobileTransactions);
-    const net = actualMonthlyNet(mobileTransactions);
-    const safe = safeToSpendToday(mobileBudgetPlan, mobileTransactions);
-    return { budget, months, spends, income, net, safe, series: months.slice(-12) };
-  }, []);
-
-  const [month, setMonth] = useState(() => base.months[base.months.length - 1] ?? '');
+  // First run belongs to the wizard. The flag flips when the flight plan is approved.
+  useEffect(() => {
+    let mounted = true;
+    AsyncStorage.getItem(SETUP_COMPLETE_KEY)
+      .then((value) => {
+        if (mounted && !value) router.replace('/setup');
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
 
   const view = useMemo(() => {
-    const { budget, months, spends, income, net } = base;
-    const spendRow = spends.find((row) => row.month === month);
-    const endIndex = months.indexOf(month);
-    const windowMonths = months.slice(Math.max(0, endIndex - 2), endIndex + 1);
-    const categories = Object.entries(spendRow?.byCategory ?? {})
-      .map(([category, value]) => {
-        const avg = mean(
-          windowMonths.map((m) => spends.find((row) => row.month === m)?.byCategory[category] ?? 0)
-        );
-        const pct = avg > 0 ? ((value - avg) / avg) * 100 : 0;
-        return {
-          label: category,
-          value,
-          color: colorForCategory(category),
-          delta: `${value >= avg ? '▲' : '▼'} ${Math.abs(pct).toFixed(0)}%`,
-          deltaUp: value > avg,
-        };
-      })
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
+    const now = new Date();
+    const safe = safeToSpendToday(mobileBudgetPlan, mobileTransactions, now);
+    const totalDays = daysInMonthOf(safe.month) || 30;
+    const dayOfMonth = Math.min(totalDays, Math.max(1, now.getDate()));
+    const datePosition = dayOfMonth / totalDays;
+    const burn = safe.flexBudget > 0 ? safe.flexSpent / safe.flexBudget : 0;
+    const bills = upcomingBills(dayOfMonth);
+    const goal = homeGoalForecast({ transactions: mobileTransactions, savings: mobileSavingsConfig });
+    const monthName = now.toLocaleDateString('en-US', { month: 'long' });
+    const nextBill = bills[0] ?? null;
+    const nextBillMonth = new Date(
+      now.getFullYear(),
+      now.getMonth() + (nextBill?.monthOffset ?? 0),
+      1
+    ).toLocaleDateString('en-US', { month: 'short' });
+
+    const subscriptionsMonthly = mobileBudgetPlan.sections
+      .find((section) => section.title === 'Subscriptions & Fun')!
+      .lines.filter((line) => line.name !== 'Fun Money')
+      .reduce((sum, line) => sum + (line.monthly ?? 0), 0);
+
+    const insights = [
+      burn <= datePosition
+        ? `Skies are clear — ${formatMoney(safe.perDay)} a day keeps this month on plan.`
+        : `Spending is a little ahead of the calendar. A quiet week brings the lines back together.`,
+      `Recurring subscriptions run ${formatMoney(subscriptionsMonthly)}/mo. The full list is on the Radar tab.`,
+      `${Math.round(goal.progress * 100)}% of the way to your home fund — arrival around ${goal.targetDateLabel}.`,
+    ];
 
     return {
-      budget,
-      incomeM: income[month] ?? 0,
-      spendM: spendRow?.total ?? 0,
-      netM: net[month] ?? 0,
-      categories,
-      spendSeries: base.series.map((m) => ({
-        label: shortMonth(m),
-        value: spends.find((row) => row.month === m)?.total ?? 0,
-      })),
-      netSeries: base.series.map((m) => ({ label: shortMonth(m), value: net[m] ?? 0 })),
+      safe,
+      burn,
+      datePosition,
+      monthName,
+      goal,
+      nextBill,
+      nextBillMonth,
+      insight: insights[now.getDate() % insights.length],
     };
-  }, [base, month]);
+  }, []);
 
-  const { safe } = base;
-  const status = safe.perDay <= 0 ? 'over' : safe.perDay < safe.dailyTarget ? 'tight' : 'good';
-  const statusColor =
-    status === 'over' ? theme.danger : status === 'tight' ? theme.warning : theme.success;
-  const statusMascot =
-    status === 'over' ? 'concerned' : status === 'tight' ? 'thinking' : 'onTrack';
-  const statusNote =
-    status === 'over'
-      ? 'Over your flexible plan for this month.'
-      : status === 'tight'
-        ? 'A little tight — spend intentionally.'
-        : 'You have room to spend today.';
-  const flexUsed = safe.flexBudget > 0 ? safe.flexSpent / safe.flexBudget : 0;
+  const { safe, burn, datePosition } = view;
+  const cruising = burn <= datePosition;
+  const grounded = safe.perDay <= 0;
+  const heroColor = grounded ? theme.danger : theme.primary;
+  const mascot = grounded ? 'concerned' : cruising ? 'onTrack' : 'thinking';
 
   return (
     <Screen
       eyebrow="Penny Pilot"
-      title="Today"
-      mascot={<PennyBadge expression={statusMascot} />}
-      segments={SEGMENTS}
-      active={active}
-      onSelect={setActive}>
-      {active === 'overview' ? (
-        <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          <Card style={styles.heroCard}>
-            <View style={styles.rowBetween}>
-              <ThemedText type="smallBold" themeColor="accent">
-                Safe to spend today
-              </ThemedText>
-              <Pill label={`~${formatMoney(safe.dailyTarget)}/day plan`} tone="info" />
-            </View>
-            <ThemedText
-              style={[styles.heroValue, { color: statusColor }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.5}>
-              {formatMoney(Math.max(0, safe.perDay))}
-            </ThemedText>
-            <ThemedText type="smallBold" style={{ color: statusColor }}>
-              {statusNote}
-            </ThemedText>
-            <ProgressBar value={flexUsed} />
-            <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(Math.max(0, safe.remaining))} left of {formatMoney(safe.flexBudget)} flexible ·{' '}
-              {safe.daysLeft} {safe.daysLeft === 1 ? 'day' : 'days'} to go.
-            </ThemedText>
-          </Card>
+      title="Cockpit"
+      subtitle={`${view.monthName} flight in progress`}
+      mascot={<PennyBadge expression={mascot} />}>
+      <ScrollView
+        style={styles.panel}
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}>
+        <View style={styles.hero}>
+          <ThemedText type="smallBold" style={[styles.heroLabel, { color: theme.accent }]}>
+            SAFE TO SPEND TODAY
+          </ThemedText>
+          <ThemedText
+            type="hero"
+            style={{ color: heroColor }}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.5}>
+            {formatMoney(Math.max(0, safe.perDay))}
+          </ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">
+            ~{formatMoney(safe.dailyTarget)}/day plan · {safe.daysLeft}{' '}
+            {safe.daysLeft === 1 ? 'day' : 'days'} left in the month
+          </ThemedText>
+        </View>
 
-          <View style={styles.tickerRow}>
-            <MonthTicker months={base.months} value={month} onChange={setMonth} formatLabel={shortMonth} />
-          </View>
-          <ThemedText type="smallBold">Actuals vs plan · {shortMonth(month)}</ThemedText>
-
-          <View style={styles.kpiRow}>
-            <TrendStat
-              label="Money in"
-              value={formatMoney(view.incomeM)}
-              deltaPct={pctVs(view.incomeM, view.budget.monthlyIncome)}
-              style={styles.kpiTile}
-            />
-            <TrendStat
-              label="Money out"
-              value={formatMoney(view.spendM)}
-              deltaPct={pctVs(view.spendM, view.budget.totalExpenses)}
-              goodWhenUp={false}
-              style={styles.kpiTile}
-            />
-          </View>
-          <TrendStat
-            label="Net saved"
-            value={formatMoney(view.netM)}
-            deltaPct={pctVs(view.netM, view.budget.monthlySavingsTarget)}
-          />
-
-          <Card>
-            <TrendBars data={view.netSeries} signed formatValue={(value) => formatMoney(value)} />
-            <ThemedText type="small" themeColor="textSecondary">
-              Dotted line = 3-month average.
-            </ThemedText>
-          </Card>
-
-          <BankSyncCard />
-        </ScrollView>
-      ) : (
-        <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-          <View style={styles.tickerRow}>
-            <MonthTicker months={base.months} value={month} onChange={setMonth} formatLabel={shortMonth} />
-          </View>
-
-          <Card>
-            <ThemedText type="smallBold">Monthly spend</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Bars = monthly total · dotted line = 3-mo average.
-            </ThemedText>
-            <TrendBars data={view.spendSeries} height={144} formatValue={(value) => formatMoney(value)} />
-          </Card>
-
-          <Card>
-            <View style={styles.rowBetween}>
-              <ThemedText type="smallBold">Top categories · {shortMonth(month)}</ThemedText>
+        <View style={styles.gaugeBlock}>
+          <AltitudeArc burn={burn} datePosition={datePosition} />
+          <View style={styles.gaugeLegend}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendSwatch, { backgroundColor: cruising ? theme.primary : theme.warning }]} />
               <ThemedText type="small" themeColor="textSecondary">
-                vs 3-mo avg
+                Budget burn
               </ThemedText>
             </View>
-            <RankedBars data={view.categories} valueLabel={(value) => formatMoney(value)} />
+            <ThemedText type="smallBold" style={{ color: cruising ? theme.primary : theme.warning }}>
+              {cruising ? 'Cruising altitude' : 'Light turbulence'}
+            </ThemedText>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendSwatch, { backgroundColor: theme.accent }]} />
+              <ThemedText type="small" themeColor="textSecondary">
+                Today
+              </ThemedText>
+            </View>
+          </View>
+        </View>
+
+        {view.nextBill ? (
+          <Pressable onPress={() => router.push('/transactions')}>
+            <Card style={styles.stackCard}>
+              <View style={styles.stackRow}>
+                <View style={styles.stackCopy}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Next bill on approach
+                  </ThemedText>
+                  <ThemedText type="smallBold" numberOfLines={1}>
+                    {view.nextBill.name} · {view.nextBillMonth} {view.nextBill.dueDay}
+                  </ThemedText>
+                </View>
+                <ThemedText type="money" style={{ fontSize: 18 }}>
+                  {formatMoney(view.nextBill.amount)}
+                </ThemedText>
+              </View>
+            </Card>
+          </Pressable>
+        ) : null}
+
+        <Pressable onPress={() => router.push('/budget')}>
+          <Card style={styles.stackCard}>
+            <View style={styles.stackRow}>
+              <View style={styles.stackCopy}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Destination
+                </ThemedText>
+                <ThemedText type="smallBold" numberOfLines={1}>
+                  First home fund · arrives ~{view.goal.targetDateLabel}
+                </ThemedText>
+              </View>
+              <Pill label={`${Math.round(view.goal.progress * 100)}%`} tone="cat" />
+            </View>
+            <ProgressBar value={view.goal.progress} />
           </Card>
-        </ScrollView>
-      )}
+        </Pressable>
+
+        <SpeechBubble expression={mascot}>{view.insight}</SpeechBubble>
+      </ScrollView>
     </Screen>
   );
 }
@@ -214,31 +222,46 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     paddingBottom: PANEL_BOTTOM_INSET,
   },
-  heroCard: {
-    borderColor: '#5DA9E9',
-    backgroundColor: '#EAF4FD',
+  hero: {
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingTop: Spacing.three,
+  },
+  heroLabel: {
+    letterSpacing: 2,
+    fontSize: 12,
+  },
+  gaugeBlock: {
     gap: Spacing.two,
   },
-  heroValue: {
-    fontSize: 44,
-    lineHeight: 48,
-    fontWeight: 800,
-    letterSpacing: -1,
-  },
-  tickerRow: {
-    alignItems: 'center',
-  },
-  kpiRow: {
-    flexDirection: 'row',
-    gap: Spacing.three,
-  },
-  kpiTile: {
-    flex: 1,
-  },
-  rowBetween: {
+  gaugeLegend: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  legendSwatch: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  stackCard: {
+    gap: Spacing.two,
+  },
+  stackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  stackCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: Spacing.half,
   },
 });

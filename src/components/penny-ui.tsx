@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { Fragment, PropsWithChildren, ReactNode, useEffect, useState } from 'react';
 import {
   Animated,
@@ -7,17 +8,19 @@ import {
   Pressable,
   StyleSheet,
   View,
+  type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { BottomTabInset, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
 
 type CardProps = PropsWithChildren<{
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }>;
 
 export function Card({ children, style }: CardProps) {
@@ -30,7 +33,7 @@ export function Card({ children, style }: CardProps) {
         styles.card,
         {
           borderColor: theme.borderStrong,
-          shadowColor: theme.borderStrong,
+          shadowColor: theme.ink,
         },
         style,
       ]}>
@@ -44,12 +47,32 @@ type Segment = { label: string; value: string };
 type ScreenProps = {
   eyebrow?: string;
   title: string;
+  subtitle?: string;
   mascot?: ReactNode;
   segments?: Segment[];
   active?: string;
   onSelect?: (value: string) => void;
   children: ReactNode;
 };
+
+/**
+ * Penny's corner avatar doubles as the door to settings and account management:
+ * tap Penny anywhere in the app and she offers help plus the settings gear.
+ */
+function MascotDoor({ children }: PropsWithChildren) {
+  const router = useRouter();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Penny — help and settings"
+      hitSlop={8}
+      onPress={() => router.push('/auth')}
+      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+      {children}
+    </Pressable>
+  );
+}
 
 /**
  * Fixed screen frame: pinned header + optional segmented sub-tabs, with a flexible body
@@ -59,6 +82,7 @@ type ScreenProps = {
 export function Screen({
   eyebrow,
   title,
+  subtitle,
   mascot,
   segments,
   active,
@@ -69,7 +93,12 @@ export function Screen({
     <ThemedView style={styles.screen}>
       <SafeAreaView edges={['top', 'left', 'right']} style={styles.screenSafe}>
         <View style={styles.screenInner}>
-          <PageHead eyebrow={eyebrow} title={title} mascot={mascot} />
+          <PageHead
+            eyebrow={eyebrow}
+            title={title}
+            subtitle={subtitle}
+            mascot={mascot ? <MascotDoor>{mascot}</MascotDoor> : undefined}
+          />
           {segments && active !== undefined && onSelect ? (
             <SegmentedToggle stretch options={segments} value={active} onChange={onSelect} />
           ) : null}
@@ -318,7 +347,7 @@ export function SegmentedToggle<T extends string | number>({
             ]}>
             <ThemedText
               type="smallBold"
-              style={{ color: on ? '#FFF8E8' : theme.textSecondary, fontSize: 13 }}>
+              style={{ color: on ? theme.onPrimary : theme.textSecondary, fontSize: 13 }}>
               {option.label}
             </ThemedText>
           </Pressable>
@@ -335,10 +364,10 @@ export function Pill({ label, tone = 'cat' }: { label: string; tone?: PillTone }
   const theme = useTheme();
   const palette: Record<PillTone, { bg: string; fg: string }> = {
     cat: { bg: theme.backgroundSelected, fg: theme.primary },
-    good: { bg: '#E7F6EC', fg: theme.success },
-    bad: { bg: '#FBEAE8', fg: theme.danger },
+    good: { bg: 'rgba(95, 196, 156, 0.16)', fg: theme.success },
+    bad: { bg: 'rgba(228, 121, 107, 0.18)', fg: theme.danger },
     muted: { bg: theme.backgroundSelected, fg: theme.textSecondary },
-    info: { bg: '#E4F1FB', fg: theme.accent },
+    info: { bg: 'rgba(127, 182, 232, 0.16)', fg: theme.accent },
   };
   const { bg, fg } = palette[tone];
 
@@ -374,7 +403,7 @@ export function SectionTotalBar({
             <ThemedText type="small" style={styles.totalSegmentLabel}>
               {segment.label}
             </ThemedText>
-            <ThemedText style={[styles.totalSegmentValue, segment.accent && { color: '#E8B27A' }]}>
+            <ThemedText style={[styles.totalSegmentValue, segment.accent && { color: '#F5B841' }]}>
               {segment.value}
             </ThemedText>
           </View>
@@ -388,6 +417,7 @@ type PennyBadgeProps = {
   mode?: 'pilot' | 'wizard';
   expression?: 'default' | 'happy' | 'onTrack' | 'thinking' | 'concerned' | 'celebrating';
   animated?: boolean;
+  size?: number;
 };
 
 const pennySources = {
@@ -404,12 +434,14 @@ export function PennyBadge({
   mode = 'pilot',
   expression = 'default',
   animated = true,
+  size = 82,
 }: PennyBadgeProps) {
   const [float] = useState(() => new Animated.Value(0));
+  const reducedMotion = useReducedMotion();
   const source = mode === 'wizard' ? pennySources.wizard : pennySources[expression];
 
   useEffect(() => {
-    if (!animated) {
+    if (!animated || reducedMotion) {
       float.setValue(0);
       return;
     }
@@ -433,7 +465,7 @@ export function PennyBadge({
 
     loop.start();
     return () => loop.stop();
-  }, [animated, float]);
+  }, [animated, float, reducedMotion]);
 
   const mascotMotion = {
     transform: [
@@ -456,7 +488,7 @@ export function PennyBadge({
     <Animated.View style={mascotMotion}>
       <Image
         source={source}
-        style={styles.pennyImage}
+        style={{ width: size, height: Math.round(size * (104 / 82)) }}
         contentFit="contain"
         accessibilityLabel={
           mode === 'wizard' ? 'Penny setup wizard mascot' : `Penny Pilot ${expression} mascot`
@@ -511,7 +543,7 @@ export function ToggleChip({
       ]}>
       <ThemedText
         type="smallBold"
-        style={{ color: selected ? '#FFF8E8' : theme.text }}>
+        style={{ color: selected ? theme.onPrimary : theme.text }}>
         {label}
       </ThemedText>
     </Pressable>
@@ -542,7 +574,7 @@ export function PillButton({ children, tone = 'quiet', onPress, disabled }: Pill
       ]}>
       <ThemedText
         type="smallBold"
-        style={{ color: isPrimary ? '#FFF8E8' : theme.text }}>
+        style={{ color: isPrimary ? theme.onPrimary : theme.text }}>
         {children}
       </ThemedText>
     </Pressable>
@@ -551,9 +583,10 @@ export function PillButton({ children, tone = 'quiet', onPress, disabled }: Pill
 
 type ProgressBarProps = {
   value: number;
+  color?: string;
 };
 
-export function ProgressBar({ value }: ProgressBarProps) {
+export function ProgressBar({ value, color }: ProgressBarProps) {
   const theme = useTheme();
 
   return (
@@ -566,7 +599,7 @@ export function ProgressBar({ value }: ProgressBarProps) {
         style={[
           styles.progressFill,
           {
-            backgroundColor: theme.success,
+            backgroundColor: color ?? theme.primary,
             width: `${Math.max(4, Math.min(value * 100, 100))}%`,
           },
         ]}
@@ -575,21 +608,223 @@ export function ProgressBar({ value }: ProgressBarProps) {
   );
 }
 
+/**
+ * Penny's speech bubble. All of Penny's dialogue renders in this one component so
+ * users learn "gold bubble = Penny talking to me."
+ */
+export function SpeechBubble({
+  children,
+  mode = 'pilot',
+  expression = 'default',
+  animated = false,
+}: PropsWithChildren<{
+  mode?: 'pilot' | 'wizard';
+  expression?: PennyBadgeProps['expression'];
+  animated?: boolean;
+}>) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.speechRow}>
+      <PennyBadge mode={mode} expression={expression} animated={animated} size={44} />
+      <View style={[styles.speechBubble, { backgroundColor: theme.primary }]}>
+        <ThemedText type="smallBold" style={{ color: theme.onPrimary }}>
+          {children}
+        </ThemedText>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Horizontal fuel gauge for budget envelopes: "fuel remaining" framing instead of
+ * "you overspent" framing. Gold fuel; coral only when the tank is effectively dry.
+ */
+export function FuelGauge({
+  label,
+  spent,
+  capacity,
+  formatValue,
+  detail,
+}: {
+  label: string;
+  spent: number;
+  capacity: number;
+  formatValue: (value: number) => string;
+  detail?: string;
+}) {
+  const theme = useTheme();
+  const remaining = capacity - spent;
+  const fraction = capacity > 0 ? Math.max(0, Math.min(remaining / capacity, 1)) : 0;
+  const low = fraction < 0.15;
+
+  return (
+    <View style={styles.fuelGauge}>
+      <View style={styles.fuelTop}>
+        <ThemedText type="smallBold" numberOfLines={1} style={styles.fuelLabel}>
+          {label}
+        </ThemedText>
+        <ThemedText type="money" style={{ color: low ? theme.danger : theme.primary }}>
+          {formatValue(Math.max(0, remaining))}
+        </ThemedText>
+      </View>
+      <View style={[styles.fuelTrack, { backgroundColor: theme.background, borderColor: theme.border }]}>
+        <View
+          style={[
+            styles.fuelFill,
+            {
+              backgroundColor: low ? theme.danger : theme.primary,
+              width: `${Math.max(2, fraction * 100)}%`,
+            },
+          ]}
+        />
+        {[0.25, 0.5, 0.75].map((tick) => (
+          <View
+            key={tick}
+            pointerEvents="none"
+            style={[styles.fuelTick, { left: `${tick * 100}%`, backgroundColor: theme.border }]}
+          />
+        ))}
+      </View>
+      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+        {detail ?? `${formatValue(Math.max(0, remaining))} fuel left of ${formatValue(capacity)}`}
+      </ThemedText>
+    </View>
+  );
+}
+
+const ARC_SEGMENTS = 25;
+
+/**
+ * The altitude gauge: a semicircular arc comparing month progress vs. budget burn.
+ * Gold segments fill to the burn fraction; the sky-blue marker sits at today's
+ * position in the month. Burn behind the marker = cruising; ahead = turbulence.
+ * Built from positioned dots (same idiom as the chart dotted lines) so it renders
+ * identically on iOS, Android, and web with no SVG dependency.
+ */
+export function AltitudeArc({
+  burn,
+  datePosition,
+  size = 220,
+}: {
+  /** Fraction of the monthly budget spent so far (0..1, clamps past 1). */
+  burn: number;
+  /** Fraction of the month elapsed (0..1). */
+  datePosition: number;
+  size?: number;
+}) {
+  const theme = useTheme();
+  const clampedBurn = Math.max(0, Math.min(burn, 1));
+  const cruising = burn <= datePosition;
+  const dotSize = 10;
+  const radius = size / 2 - dotSize;
+  const centerX = size / 2;
+  const centerY = size / 2;
+  const filled = Math.round(clampedBurn * ARC_SEGMENTS);
+  const markerIndex = Math.max(0, Math.min(Math.round(datePosition * ARC_SEGMENTS), ARC_SEGMENTS));
+
+  const pointAt = (index: number, r = radius) => {
+    const angle = Math.PI - (index / ARC_SEGMENTS) * Math.PI;
+    return { x: centerX + Math.cos(angle) * r, y: centerY - Math.sin(angle) * r };
+  };
+
+  return (
+    <View style={{ width: size, height: size / 2 + dotSize, alignSelf: 'center' }}>
+      {Array.from({ length: ARC_SEGMENTS + 1 }).map((_, index) => {
+        const { x, y } = pointAt(index);
+        const on = index <= filled && clampedBurn > 0;
+        return (
+          <View
+            key={index}
+            style={{
+              position: 'absolute',
+              left: x - dotSize / 2,
+              top: y - dotSize / 2,
+              width: dotSize,
+              height: dotSize,
+              borderRadius: dotSize / 2,
+              backgroundColor: on
+                ? cruising
+                  ? theme.primary
+                  : theme.warning
+                : theme.backgroundSelected,
+            }}
+          />
+        );
+      })}
+      {(() => {
+        const { x, y } = pointAt(markerIndex, radius + dotSize * 0.1);
+        return (
+          <View
+            style={{
+              position: 'absolute',
+              left: x - 9,
+              top: y - 9,
+              width: 18,
+              height: 18,
+              borderRadius: 9,
+              borderWidth: 3,
+              borderColor: theme.background,
+              backgroundColor: theme.accent,
+            }}
+          />
+        );
+      })()}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
-    borderWidth: 2,
-    borderRadius: 8,
+    borderWidth: 1,
+    borderRadius: Radius.card,
     padding: Spacing.three,
     gap: Spacing.two,
-    // Hard editorial offset shadow (finance_tracker look), not a soft blur.
-    shadowOpacity: 0.16,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
-  pennyImage: {
-    width: 82,
-    height: 104,
+  speechRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: Spacing.two,
+  },
+  speechBubble: {
+    flex: 1,
+    borderRadius: Radius.card,
+    borderBottomLeftRadius: 4,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  fuelGauge: {
+    gap: Spacing.one,
+  },
+  fuelTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  fuelLabel: {
+    flex: 1,
+    minWidth: 0,
+  },
+  fuelTrack: {
+    height: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  fuelFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  fuelTick: {
+    position: 'absolute',
+    top: 2,
+    bottom: 2,
+    width: 1,
   },
   screen: {
     flex: 1,
@@ -602,8 +837,8 @@ const styles = StyleSheet.create({
   },
   screenInner: {
     flex: 1,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Platform.OS === 'web' ? Spacing.five : Spacing.three,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Platform.OS === 'web' ? Spacing.five : Spacing.two,
     gap: Spacing.three,
   },
   screenBody: {
@@ -654,10 +889,10 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
   },
   pageHeadTitle: {
-    fontSize: 32,
-    lineHeight: 36,
+    fontSize: 30,
+    lineHeight: 34,
     fontWeight: 800,
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
   statCard: {
     flex: 1,
@@ -674,7 +909,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 999,
     padding: 3,
     gap: 2,
   },
@@ -685,7 +920,7 @@ const styles = StyleSheet.create({
   toggleButton: {
     paddingVertical: 7,
     paddingHorizontal: 12,
-    borderRadius: 6,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -704,7 +939,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.three,
-    borderRadius: 8,
+    borderRadius: 22,
     paddingVertical: 20,
     paddingHorizontal: 24,
   },
@@ -712,7 +947,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   totalSegmentLabel: {
-    color: '#FFF8E8',
+    color: '#F2F6FB',
     opacity: 0.72,
     fontSize: 12,
   },
@@ -731,7 +966,7 @@ const styles = StyleSheet.create({
   pillButton: {
     minHeight: 42,
     paddingHorizontal: Spacing.three,
-    borderRadius: 7,
+    borderRadius: 999,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -758,7 +993,7 @@ const styles = StyleSheet.create({
   toggleChip: {
     minHeight: 40,
     paddingHorizontal: Spacing.three,
-    borderRadius: 7,
+    borderRadius: 999,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+
+const TOOLTIP_WIDTH = 104;
 
 type TrendPoint = {
   label: string;
@@ -17,6 +19,8 @@ type TrendBarsProps = {
   signed?: boolean;
   /** Trailing moving-average window drawn as a dotted line. 0 hides it. */
   averageWindow?: number;
+  /** Formats the value shown in the tap tooltip. */
+  formatValue?: (value: number) => string;
 };
 
 /**
@@ -24,9 +28,16 @@ type TrendBarsProps = {
  * many months fit; scaled from a lifted baseline (not 0) so month-to-month differences read.
  * No per-bar number labels — the shape does the talking; the latest bar is highlighted.
  */
-export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: TrendBarsProps) {
+export function TrendBars({
+  data,
+  height = 128,
+  signed,
+  averageWindow = 3,
+  formatValue,
+}: TrendBarsProps) {
   const theme = useTheme();
   const [plotWidth, setPlotWidth] = useState(0);
+  const [selected, setSelected] = useState<number | null>(null);
   const values = data.map((point) => point.value);
   const max = Math.max(...values, 1);
   const min = Math.min(...values, 0);
@@ -66,8 +77,15 @@ export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: Tre
     }
   }
 
-  // Show at most ~6 x labels so they never crowd.
-  const labelStep = Math.max(1, Math.ceil(data.length / 6));
+  const format = formatValue ?? ((value: number) => String(Math.round(value)));
+  const columnWidth = data.length > 0 ? plotWidth / data.length : 0;
+  const tooltipLeft =
+    selected !== null
+      ? Math.min(
+          Math.max((selected + 0.5) * columnWidth - TOOLTIP_WIDTH / 2, 0),
+          Math.max(plotWidth - TOOLTIP_WIDTH, 0)
+        )
+      : 0;
 
   return (
     <View style={styles.trend}>
@@ -76,6 +94,7 @@ export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: Tre
         onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}>
         {data.map((point, index) => {
           const isLast = index === data.length - 1;
+          const isSelected = selected === index;
           const color = signed
             ? point.value >= 0
               ? theme.success
@@ -83,14 +102,23 @@ export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: Tre
             : theme.accent;
 
           return (
-            <View key={`${point.label}-${index}`} style={styles.trendColumn}>
+            <Pressable
+              key={`${point.label}-${index}`}
+              style={styles.trendColumn}
+              onPress={() => setSelected(isSelected ? null : index)}>
               <View
                 style={[
                   styles.trendBar,
-                  { height: heightFor(point.value), backgroundColor: color, opacity: isLast ? 1 : 0.55 },
+                  {
+                    height: heightFor(point.value),
+                    backgroundColor: color,
+                    opacity: isLast || isSelected ? 1 : 0.55,
+                    borderWidth: isSelected ? 1.5 : 0,
+                    borderColor: theme.text,
+                  },
                 ]}
               />
-            </View>
+            </Pressable>
           );
         })}
         {dots.length > 0 ? (
@@ -106,6 +134,26 @@ export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: Tre
             ))}
           </View>
         ) : null}
+        {selected !== null && plotWidth > 0 ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.tooltip,
+              {
+                left: tooltipLeft,
+                top: Math.max(0, plotHeight - heightFor(values[selected]) - 42),
+                borderColor: theme.borderStrong,
+                backgroundColor: theme.background,
+              },
+            ]}>
+            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+              {data[selected].label}
+            </ThemedText>
+            <ThemedText type="smallBold" numberOfLines={1}>
+              {format(values[selected])}
+            </ThemedText>
+          </View>
+        ) : null}
       </View>
       <View style={styles.trendLabels}>
         {data.map((point, index) => (
@@ -114,7 +162,7 @@ export function TrendBars({ data, height = 128, signed, averageWindow = 3 }: Tre
             numberOfLines={1}
             themeColor="textSecondary"
             style={styles.trendLabel}>
-            {index % labelStep === 0 ? point.label : ''}
+            {point.label.split(' ')[0]}
           </ThemedText>
         ))}
       </View>
@@ -223,6 +271,17 @@ const styles = StyleSheet.create({
     height: 3,
     borderRadius: 1.5,
   },
+  tooltip: {
+    position: 'absolute',
+    width: TOOLTIP_WIDTH,
+    borderWidth: 2,
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    zIndex: 10,
+    elevation: 6,
+  },
   trendLabels: {
     flexDirection: 'row',
     gap: 3,
@@ -230,7 +289,7 @@ const styles = StyleSheet.create({
   trendLabel: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 10,
+    fontSize: 9,
   },
   ranked: {
     gap: Spacing.three,

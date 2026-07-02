@@ -147,7 +147,12 @@ export default function GoalsScreen() {
               Projected balance in 2 years: {formatMoney(savings.horizonPoint.actual)} (budget says{' '}
               {formatMoney(savings.horizonPoint.budgeted)}).
             </ThemedText>
-            <TrendBars data={savings.chart} averageWindow={0} height={140} />
+            <TrendBars
+              data={savings.chart}
+              averageWindow={0}
+              height={140}
+              formatValue={(value) => formatMoney(value)}
+            />
           </Card>
 
           <Card>

@@ -169,11 +169,10 @@ export default function TodayScreen() {
           />
 
           <Card>
-            <ThemedText type="smallBold">Net saved per month</ThemedText>
+            <TrendBars data={view.netSeries} signed formatValue={(value) => formatMoney(value)} />
             <ThemedText type="small" themeColor="textSecondary">
-              Green = saved, red = dipped in · dotted line = 3-mo average.
+              Dotted line = 3-month average.
             </ThemedText>
-            <TrendBars data={view.netSeries} signed />
           </Card>
 
           <BankSyncCard />
@@ -189,7 +188,7 @@ export default function TodayScreen() {
             <ThemedText type="small" themeColor="textSecondary">
               Bars = monthly total · dotted line = 3-mo average.
             </ThemedText>
-            <TrendBars data={view.spendSeries} height={144} />
+            <TrendBars data={view.spendSeries} height={144} formatValue={(value) => formatMoney(value)} />
           </Card>
 
           <Card>

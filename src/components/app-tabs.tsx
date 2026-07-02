@@ -28,38 +28,6 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="todo">
-        <NativeTabs.Trigger.Label>To-Do</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="transactions">
-        <NativeTabs.Trigger.Label>Review</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="spending">
-        <NativeTabs.Trigger.Label>Spending</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="savings">
-        <NativeTabs.Trigger.Label>Savings</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
       <NativeTabs.Trigger name="goals">
         <NativeTabs.Trigger.Label>Goals</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
@@ -68,8 +36,8 @@ export default function AppTabs() {
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="setup">
-        <NativeTabs.Trigger.Label>Setup</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="transactions">
+        <NativeTabs.Trigger.Label>Review</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           src={require('@/assets/images/tabIcons/explore.png')}
           renderingMode="template"

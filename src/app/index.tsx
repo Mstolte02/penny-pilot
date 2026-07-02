@@ -1,126 +1,127 @@
-import { Link, type Href } from 'expo-router';
-import { useMemo } from 'react';
-import { Platform, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { BankSyncCard } from '@/components/bank-sync-card';
-import { MiniBarChart, SparkBars } from '@/components/mini-charts';
-import { Card, PageHead, PennyBadge, PillButton, ProgressBar, Stat } from '@/components/penny-ui';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { RankedBars, TrendBars } from '@/components/mini-charts';
 import {
-  mobileBudgetPlan,
-  mobileSavingsConfig,
-  mobileTransactions,
-} from '@/data/personal-finance-template';
-import { reviewTransactions } from '@/data/sample-finance';
+  Card,
+  PANEL_BOTTOM_INSET,
+  PennyBadge,
+  Pill,
+  ProgressBar,
+  Screen,
+  Stat,
+} from '@/components/penny-ui';
+import { ThemedText } from '@/components/themed-text';
+import { colorForCategory, Spacing } from '@/constants/theme';
+import { mobileBudgetPlan, mobileTransactions } from '@/data/personal-finance-template';
 import {
   actualMonthlyNet,
   formatMoney,
   formatMonth,
-  homeGoalForecast,
+  mean,
   monthlyIncome,
   monthlySpend,
   summarizeBudget,
   uniqueMonths,
 } from '@/domain/mobile-finance';
-import { useTheme } from '@/hooks/use-theme';
 
-const navGroups: { title: string; links: { label: string; href: Href }[] }[] = [
-  {
-    title: 'Plan',
-    links: [
-      { label: 'Budget', href: '/budget' },
-      { label: 'To-Do', href: '/todo' },
-    ],
-  },
-  {
-    title: 'Track',
-    links: [
-      { label: 'Review', href: '/transactions' },
-      { label: 'Spending', href: '/spending' },
-    ],
-  },
-  {
-    title: 'Forecast',
-    links: [
-      { label: 'Savings', href: '/savings' },
-      { label: 'Home goal', href: '/goals' },
-    ],
-  },
+const SEGMENTS = [
+  { label: 'Overview', value: 'overview' },
+  { label: 'Spending', value: 'spending' },
 ];
 
-export default function HomeScreen() {
-  const theme = useTheme();
+function shortMonth(month: string) {
+  return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
+}
+
+function moneyK(value: number) {
+  return formatMoney(value / 1000, 1) + 'k';
+}
+
+export default function TodayScreen() {
+  const [active, setActive] = useState('overview');
+
   const model = useMemo(() => {
     const budget = summarizeBudget(mobileBudgetPlan, mobileTransactions);
     const months = uniqueMonths(mobileTransactions);
-    const latestMonth = months[months.length - 1] ?? '';
-    const spend = monthlySpend(mobileTransactions);
+    const latest = months[months.length - 1] ?? '';
+    const spends = monthlySpend(mobileTransactions);
     const income = monthlyIncome(mobileTransactions);
     const net = actualMonthlyNet(mobileTransactions);
-    const latestSpend = spend.find((row) => row.month === latestMonth)?.total ?? 0;
-    const latestIncome = income[latestMonth] ?? 0;
-    const latestNet = net[latestMonth] ?? 0;
-    const goal = homeGoalForecast({
-      transactions: mobileTransactions,
-      savings: mobileSavingsConfig,
-    });
 
-    return {
-      budget,
-      latestMonth,
-      latestSpend,
-      latestIncome,
-      latestNet,
-      goal,
-      monthlySeries: months.slice(-4).map((month) => ({
-        label: formatMonth(month).replace(' 2026', ''),
-        income: income[month] ?? 0,
-        spend: spend.find((row) => row.month === month)?.total ?? 0,
-        net: net[month] ?? 0,
-      })),
-    };
+    const latestSpendRow = spends.find((row) => row.month === latest);
+    const latestSpend = latestSpendRow?.total ?? 0;
+    const latestIncome = income[latest] ?? 0;
+    const latestNet = net[latest] ?? 0;
+
+    const spendSeries = months.slice(-6).map((month) => ({
+      label: shortMonth(month),
+      value: spends.find((row) => row.month === month)?.total ?? 0,
+    }));
+    const netSeries = months.slice(-6).map((month) => ({
+      label: shortMonth(month),
+      value: net[month] ?? 0,
+    }));
+
+    const windowMonths = months.slice(-3);
+    const categories = Object.entries(latestSpendRow?.byCategory ?? {})
+      .map(([category, value]) => {
+        const avg = mean(
+          windowMonths.map((month) => spends.find((row) => row.month === month)?.byCategory[category] ?? 0)
+        );
+        const pct = avg > 0 ? ((value - avg) / avg) * 100 : 0;
+        return {
+          label: category,
+          value,
+          color: colorForCategory(category),
+          delta: `${value >= avg ? '▲' : '▼'} ${Math.abs(pct).toFixed(0)}%`,
+          deltaUp: value > avg,
+        };
+      })
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+
+    return { budget, latest, latestSpend, latestIncome, latestNet, spendSeries, netSeries, categories };
   }, []);
+
   const budgetProgress =
     model.budget.totalExpenses > 0 ? model.latestSpend / model.budget.totalExpenses : 0;
+  const overPlan = budgetProgress > 1;
+  const left = Math.max(0, model.budget.totalExpenses - model.latestSpend);
 
   return (
-    <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <SafeAreaView style={styles.safeArea}>
-          <PageHead
-            eyebrow="Penny Pilot"
-            title="Today's flight path"
-            subtitle="Budget, review, and goal progress in one quick pass."
-            mascot={<PennyBadge expression={budgetProgress > 1 ? 'concerned' : 'onTrack'} />}
-          />
-
+    <Screen
+      eyebrow="Penny Pilot"
+      title="Today"
+      mascot={<PennyBadge expression={overPlan ? 'concerned' : 'onTrack'} />}
+      segments={SEGMENTS}
+      active={active}
+      onSelect={setActive}>
+      {active === 'overview' ? (
+        <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
           <View style={styles.kpiGrid}>
             <Stat
               label="Take-home (plan)"
               value={formatMoney(model.budget.monthlyIncome)}
-              delta="planned monthly income"
-              trend="flat"
+              delta="planned income"
               style={styles.kpiTile}
             />
             <Stat
-              label={`Money in · ${formatMonth(model.latestMonth)}`}
+              label={`Money in · ${shortMonth(model.latest)}`}
               value={formatMoney(model.latestIncome)}
-              delta={model.latestIncome >= model.budget.monthlyIncome ? 'at or above plan' : 'below plan'}
+              delta={model.latestIncome >= model.budget.monthlyIncome ? 'at/above plan' : 'below plan'}
               trend={model.latestIncome >= model.budget.monthlyIncome ? 'up' : 'down'}
               style={styles.kpiTile}
             />
             <Stat
-              label={`Money out · ${formatMonth(model.latestMonth)}`}
+              label={`Money out · ${shortMonth(model.latest)}`}
               value={formatMoney(model.latestSpend)}
               delta="total spending"
-              trend="flat"
               style={styles.kpiTile}
             />
             <Stat
-              label={`Available · ${formatMonth(model.latestMonth)}`}
+              label={`Net · ${shortMonth(model.latest)}`}
               value={formatMoney(model.latestNet)}
               delta={model.latestNet >= 0 ? 'left over' : 'overspent'}
               trend={model.latestNet >= 0 ? 'up' : 'down'}
@@ -128,221 +129,59 @@ export default function HomeScreen() {
             />
           </View>
 
-          <Card style={styles.heroCard}>
-            <View style={styles.row}>
-              <View>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {formatMonth(model.latestMonth)} spending
-                </ThemedText>
-                <ThemedText type="subtitle">{formatMoney(model.latestSpend)}</ThemedText>
-              </View>
-              <View style={[styles.statusBadge, { backgroundColor: theme.backgroundSelected }]}>
-                <ThemedText type="smallBold" themeColor={budgetProgress > 1 ? 'warning' : 'success'}>
-                  {budgetProgress > 1 ? 'Over plan' : 'On track'}
-                </ThemedText>
-              </View>
+          <Card>
+            <View style={styles.rowBetween}>
+              <ThemedText type="smallBold">Budget used · {shortMonth(model.latest)}</ThemedText>
+              <Pill label={overPlan ? 'Over plan' : 'On track'} tone={overPlan ? 'bad' : 'good'} />
             </View>
             <ProgressBar value={budgetProgress} />
             <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(Math.max(0, model.budget.totalExpenses - model.latestSpend))} left
-              against the current monthly plan.
+              {formatMoney(left)} left of {formatMoney(model.budget.totalExpenses)} planned expenses.
             </ThemedText>
           </Card>
 
-          <Card style={styles.chartCard}>
-            <View style={styles.chartHeader}>
-              <View>
-                <ThemedText type="smallBold">Income vs expenses</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  The personal dashboard, compressed for a quick phone read.
-                </ThemedText>
-              </View>
-            </View>
-            <MiniBarChart
-              data={model.monthlySeries.map((point) => ({
-                label: point.label,
-                value: point.spend,
-                comparison: point.income,
-              }))}
-              valueLabel={(value) => formatMoney(value / 1000, 1).replace('$', '$') + 'k'}
-            />
-            <View style={styles.legendRow}>
-              <LegendDot label="Income backdrop" />
-              <LegendDot label="Expenses" filled />
-            </View>
-          </Card>
-
-          <View style={styles.grid}>
-            <Card style={styles.metricCard}>
-              <ThemedText type="small" themeColor="textSecondary">
-                Money in
-              </ThemedText>
-              <ThemedText type="subtitle">{formatMoney(model.latestIncome)}</ThemedText>
-              <ThemedText type="small">{formatMonth(model.latestMonth)}</ThemedText>
-            </Card>
-            <Card style={styles.metricCard}>
-              <ThemedText type="small" themeColor="textSecondary">
-                Net
-              </ThemedText>
-              <ThemedText type="subtitle">{formatMoney(model.latestNet)}</ThemedText>
-              <ThemedText type="small">Income minus spend.</ThemedText>
-            </Card>
-          </View>
-
           <Card>
-            <ThemedText type="smallBold">Net savings trend</ThemedText>
-            <SparkBars
-              values={model.monthlySeries.map((point) => point.net)}
-              labels={model.monthlySeries.map((point) => point.label)}
-              valueLabel={(value) => formatMoney(value / 1000, 1).replace('$', '$') + 'k'}
-            />
-          </Card>
-
-          <Card>
-            <View style={styles.actionHeader}>
-              <View style={styles.actionCopy}>
-                <ThemedText type="smallBold">Next best actions</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  The personal app&apos;s big sections are becoming smaller, phone-sized loops.
-                </ThemedText>
-              </View>
-              <PennyBadge expression="thinking" animated={false} />
-            </View>
-            <ActionRow title="Review transactions" detail={`${reviewTransactions.length} sample items waiting`} href="/transactions" />
-            <ActionRow title="Tune the budget" detail={`${formatMoney(model.budget.variableTotal)} variable forecast`} href="/budget" />
-            <ActionRow title="Check home runway" detail={`Target: ${model.goal.targetDateLabel}`} href="/goals" />
-          </Card>
-
-          <Card style={styles.navCard}>
-            <ThemedText type="smallBold">Jump to a section</ThemedText>
-            {navGroups.map((group) => (
-              <View key={group.title} style={styles.navGroup}>
-                <ThemedText type="small" themeColor="textSecondary" style={styles.navGroupTitle}>
-                  {group.title.toUpperCase()}
-                </ThemedText>
-                <View style={styles.navLinks}>
-                  {group.links.map((link) => (
-                    <NavPill key={link.label} label={link.label} href={link.href} />
-                  ))}
-                </View>
-              </View>
-            ))}
-          </Card>
-
-          <Card>
-            <View style={styles.setupRow}>
-              <View style={styles.setupCopy}>
-                <ThemedText type="smallBold">Personal setup</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Tune categories, budget style, goals, and Penny&apos;s guidance before syncing.
-                </ThemedText>
-              </View>
-              <Link href="/setup" style={[styles.setupButton, { backgroundColor: theme.primary }]}>
-                <ThemedText type="smallBold" style={styles.setupButtonText}>
-                  Start
-                </ThemedText>
-              </Link>
-            </View>
+            <ThemedText type="smallBold">Net saved per month</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Income minus spending, last 6 months.
+            </ThemedText>
+            <TrendBars data={model.netSeries} valueLabel={moneyK} />
           </Card>
 
           <BankSyncCard />
+        </ScrollView>
+      ) : (
+        <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          <Card>
+            <ThemedText type="smallBold">Total monthly spend</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Last 6 months · latest highlighted.
+            </ThemedText>
+            <TrendBars data={model.spendSeries} valueLabel={moneyK} />
+          </Card>
 
           <Card>
-            <ThemedText type="smallBold">First home</ThemedText>
-            <ProgressBar value={model.goal.progress} />
-            <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(model.goal.currentSavings)} saved of {formatMoney(model.goal.cashNeeded)}.
-              Current projection: {model.goal.targetDateLabel}.
-            </ThemedText>
-            <View style={styles.actions}>
-              <PillButton tone="primary">Review plan</PillButton>
-              <PillButton>Adjust goal</PillButton>
+            <View style={styles.rowBetween}>
+              <ThemedText type="smallBold">Top categories</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                {shortMonth(model.latest)} vs 3-mo avg
+              </ThemedText>
             </View>
+            <RankedBars data={model.categories} valueLabel={(value) => formatMoney(value)} />
           </Card>
-        </SafeAreaView>
-      </ScrollView>
-    </ThemedView>
-  );
-}
-
-function ActionRow({ title, detail, href }: { title: string; detail: string; href: Href }) {
-  return (
-    <Link href={href} asChild>
-      <View style={styles.actionRow}>
-        <View style={styles.actionCopy}>
-          <ThemedText type="smallBold">{title}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            {detail}
-          </ThemedText>
-        </View>
-        <ThemedText type="smallBold">Open</ThemedText>
-      </View>
-    </Link>
-  );
-}
-
-function NavPill({ label, href }: { label: string; href: Href }) {
-  const theme = useTheme();
-
-  return (
-    <Link
-      href={href}
-      style={[styles.navPill, { borderColor: theme.borderStrong, backgroundColor: theme.background }]}>
-      <ThemedText type="smallBold">{label}</ThemedText>
-    </Link>
-  );
-}
-
-function LegendDot({ label, filled }: { label: string; filled?: boolean }) {
-  const theme = useTheme();
-
-  return (
-    <View style={styles.legendItem}>
-      <View
-        style={[
-          styles.legendDot,
-          {
-            backgroundColor: filled ? theme.primary : theme.backgroundSelected,
-            borderColor: filled ? theme.primary : theme.border,
-          },
-        ]}
-      />
-      <ThemedText type="small" themeColor="textSecondary">
-        {label}
-      </ThemedText>
-    </View>
+        </ScrollView>
+      )}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  panel: {
     flex: 1,
   },
-  scrollContent: {
-    flexGrow: 1,
-    alignItems: 'center',
-    width: '100%',
-  },
-  safeArea: {
-    width: '100%',
-    maxWidth: MaxContentWidth,
-    paddingHorizontal: Spacing.four,
+  body: {
     gap: Spacing.three,
-    paddingTop: Platform.OS === 'web' ? Spacing.six + Spacing.three : Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.five,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  headerCopy: {
-    flex: 1,
-    gap: Spacing.one,
-  },
-  title: {
-    fontSize: 34,
-    lineHeight: 38,
+    paddingBottom: PANEL_BOTTOM_INSET,
   },
   kpiGrid: {
     flexDirection: 'row',
@@ -354,110 +193,10 @@ const styles = StyleSheet.create({
     flexBasis: '45%',
     minWidth: 140,
   },
-  navCard: {
-    gap: Spacing.three,
-  },
-  navGroup: {
-    gap: Spacing.two,
-  },
-  navGroupTitle: {
-    fontSize: 11,
-    letterSpacing: 1,
-    fontWeight: 800,
-  },
-  navLinks: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  navPill: {
-    borderWidth: 1,
-    borderRadius: 7,
-    paddingVertical: 9,
-    paddingHorizontal: 13,
-  },
-  heroCard: {
-    gap: Spacing.three,
-  },
-  chartCard: {
-    gap: Spacing.three,
-  },
-  chartHeader: {
-    gap: Spacing.half,
-  },
-  legendRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.three,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  legendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 3,
-    borderWidth: 1,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-  },
-  statusBadge: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-    borderRadius: 999,
-  },
-  grid: {
-    flexDirection: 'row',
-    gap: Spacing.three,
-  },
-  metricCard: {
-    flex: 1,
-  },
-  actionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  actionRow: {
-    minHeight: 58,
+  rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
-  },
-  actionCopy: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  actions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  setupRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  setupCopy: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  setupButton: {
-    minHeight: 42,
-    paddingHorizontal: Spacing.three,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    display: 'flex',
-  },
-  setupButtonText: {
-    color: '#FFF8E8',
   },
 });

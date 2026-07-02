@@ -1,10 +1,19 @@
 import { Image } from 'expo-image';
 import { Fragment, PropsWithChildren, ReactNode, useEffect, useState } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+  type ViewStyle,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type CardProps = PropsWithChildren<{
@@ -27,6 +36,88 @@ export function Card({ children, style }: CardProps) {
       ]}>
       {children}
     </ThemedView>
+  );
+}
+
+type Segment = { label: string; value: string };
+
+type ScreenProps = {
+  eyebrow?: string;
+  title: string;
+  mascot?: ReactNode;
+  segments?: Segment[];
+  active?: string;
+  onSelect?: (value: string) => void;
+  children: ReactNode;
+};
+
+/**
+ * Fixed screen frame: pinned header + optional segmented sub-tabs, with a flexible body
+ * below. The header and segments never scroll away; panels decide whether their own body
+ * needs a short bounded scroll — so no screen is one long continuous scroll.
+ */
+export function Screen({
+  eyebrow,
+  title,
+  mascot,
+  segments,
+  active,
+  onSelect,
+  children,
+}: ScreenProps) {
+  return (
+    <ThemedView style={styles.screen}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.screenSafe}>
+        <View style={styles.screenInner}>
+          <PageHead eyebrow={eyebrow} title={title} mascot={mascot} />
+          {segments && active !== undefined && onSelect ? (
+            <SegmentedToggle stretch options={segments} value={active} onChange={onSelect} />
+          ) : null}
+          <View style={styles.screenBody}>{children}</View>
+        </View>
+      </SafeAreaView>
+    </ThemedView>
+  );
+}
+
+/** Bottom padding to clear the native tab bar for scrolling panel bodies. */
+export const PANEL_BOTTOM_INSET = BottomTabInset + Spacing.four;
+
+/** One-line label/value row: the label truncates, the value never wraps. */
+export function StatRow({
+  label,
+  sublabel,
+  value,
+  valueColor,
+  divider = true,
+}: {
+  label: string;
+  sublabel?: string;
+  value: string;
+  valueColor?: string;
+  divider?: boolean;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={[styles.statRow, divider && { borderTopWidth: 1, borderTopColor: theme.border }]}>
+      <View style={styles.statRowLabel}>
+        <ThemedText type="smallBold" numberOfLines={1}>
+          {label}
+        </ThemedText>
+        {sublabel ? (
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+            {sublabel}
+          </ThemedText>
+        ) : null}
+      </View>
+      <ThemedText
+        type="smallBold"
+        numberOfLines={1}
+        style={[styles.statRowValue, valueColor ? { color: valueColor } : null]}>
+        {value}
+      </ThemedText>
+    </View>
   );
 }
 
@@ -82,12 +173,18 @@ export function Stat({
 
   return (
     <Card style={StyleSheet.flatten([styles.statCard, style])}>
-      <ThemedText type="small" themeColor="textSecondary">
+      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
         {label}
       </ThemedText>
-      <ThemedText style={styles.statValue}>{value}</ThemedText>
+      <ThemedText
+        style={styles.statValue}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.5}>
+        {value}
+      </ThemedText>
       {delta ? (
-        <ThemedText type="small" style={{ color: deltaColor }}>
+        <ThemedText type="small" style={{ color: deltaColor }} numberOfLines={1}>
           {delta}
         </ThemedText>
       ) : null}
@@ -100,10 +197,12 @@ export function SegmentedToggle<T extends string | number>({
   options,
   value,
   onChange,
+  stretch,
 }: {
   options: { label: string; value: T }[];
   value: T;
   onChange: (value: T) => void;
+  stretch?: boolean;
 }) {
   const theme = useTheme();
 
@@ -111,6 +210,7 @@ export function SegmentedToggle<T extends string | number>({
     <View
       style={[
         styles.toggleRow,
+        stretch && styles.toggleRowStretch,
         { backgroundColor: theme.backgroundSelected, borderColor: theme.border },
       ]}>
       {options.map((option) => {
@@ -122,6 +222,7 @@ export function SegmentedToggle<T extends string | number>({
             onPress={() => onChange(option.value)}
             style={({ pressed }) => [
               styles.toggleButton,
+              stretch && styles.toggleButtonStretch,
               on && { backgroundColor: theme.primary },
               { opacity: pressed ? 0.8 : 1 },
             ]}>
@@ -399,6 +500,39 @@ const styles = StyleSheet.create({
     width: 82,
     height: 104,
   },
+  screen: {
+    flex: 1,
+  },
+  screenSafe: {
+    flex: 1,
+    width: '100%',
+    maxWidth: MaxContentWidth,
+    alignSelf: 'center',
+  },
+  screenInner: {
+    flex: 1,
+    paddingHorizontal: Spacing.four,
+    paddingTop: Platform.OS === 'web' ? Spacing.five : Spacing.three,
+    gap: Spacing.three,
+  },
+  screenBody: {
+    flex: 1,
+  },
+  statRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.three,
+    paddingVertical: Spacing.two,
+  },
+  statRowLabel: {
+    flex: 1,
+    minWidth: 0,
+    gap: Spacing.half,
+  },
+  statRowValue: {
+    flexShrink: 0,
+  },
   pageHead: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -433,12 +567,19 @@ const styles = StyleSheet.create({
     padding: 3,
     gap: 2,
   },
+  toggleRowStretch: {
+    alignSelf: 'stretch',
+    flexWrap: 'nowrap',
+  },
   toggleButton: {
     paddingVertical: 7,
     paddingHorizontal: 12,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  toggleButtonStretch: {
+    flex: 1,
   },
   pill: {
     alignSelf: 'flex-start',

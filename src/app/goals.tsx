@@ -1,16 +1,21 @@
-import { useMemo } from 'react';
-import { Platform, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { MiniBarChart } from '@/components/mini-charts';
-import { Card, PageHead, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { TrendBars } from '@/components/mini-charts';
 import {
-  mobileSavingsConfig,
-  mobileTransactions,
-} from '@/data/personal-finance-template';
+  Card,
+  PANEL_BOTTOM_INSET,
+  PennyBadge,
+  Pill,
+  ProgressBar,
+  Screen,
+  SegmentedToggle,
+  Stat,
+  StatRow,
+} from '@/components/penny-ui';
+import { ThemedText } from '@/components/themed-text';
+import { Spacing } from '@/constants/theme';
+import { mobileSavingsConfig, mobileTransactions } from '@/data/personal-finance-template';
 import {
   avgActualMonthlySavings,
   ewmaMonthlySavings,
@@ -20,246 +25,178 @@ import {
   projectSavings,
 } from '@/domain/mobile-finance';
 
+const SEGMENTS = [
+  { label: 'Goal', value: 'goal' },
+  { label: 'Savings', value: 'savings' },
+];
+
+type Pace = number | 'ewma';
+
+const PACE_WINDOWS: { label: string; value: Pace }[] = [
+  { label: '3-mo', value: 3 },
+  { label: '6-mo', value: 6 },
+  { label: '12-mo', value: 12 },
+  { label: 'EWMA', value: 'ewma' },
+];
+
+const HORIZON = 24;
+
+function shortMonth(month: string) {
+  return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
+}
+
+function moneyK(value: number) {
+  return formatMoney(value / 1000, 0) + 'k';
+}
+
 export default function GoalsScreen() {
+  const [active, setActive] = useState('goal');
+  const [pace, setPace] = useState<Pace>('ewma');
+
   const homeGoal = useMemo(
-    () =>
-      homeGoalForecast({
-        transactions: mobileTransactions,
-        savings: mobileSavingsConfig,
-      }),
+    () => homeGoalForecast({ transactions: mobileTransactions, savings: mobileSavingsConfig }),
     []
   );
-  const avgSix = useMemo(() => avgActualMonthlySavings(mobileTransactions, 6), []);
-  const ewma = useMemo(() => ewmaMonthlySavings(mobileTransactions), []);
-  const projection = useMemo(() => {
-    const points = projectSavings({
+
+  const savings = useMemo(() => {
+    const budgetedTarget = mobileSavingsConfig.monthlySavingsTarget;
+    const avgSave =
+      pace === 'ewma'
+        ? ewmaMonthlySavings(mobileTransactions)
+        : avgActualMonthlySavings(mobileTransactions, pace);
+    const projection = projectSavings({
       startBalance: mobileSavingsConfig.currentSavings,
       startDate: mobileSavingsConfig.asOfDate,
-      months: 12,
-      budgetedMonthly: mobileSavingsConfig.monthlySavingsTarget,
-      actualMonthly: ewma,
+      months: HORIZON,
+      budgetedMonthly: budgetedTarget,
+      actualMonthly: avgSave,
       plannedExpenses: mobileSavingsConfig.plannedExpenses,
       recurringExpenses: mobileSavingsConfig.recurringExpenses,
       apyMonthly: mobileSavingsConfig.savingsApy / 12,
     });
+    const horizonPoint = projection[projection.length - 1];
+    const step = Math.max(1, Math.ceil(projection.length / 6));
+    const chart = projection
+      .filter((_, index) => index % step === 0)
+      .map((point) => ({ label: shortMonth(point.month), value: point.actual }));
 
-    return points.filter((_, index) => index % 3 === 0).slice(0, 5);
-  }, [ewma]);
+    return { budgetedTarget, avgSave, horizonPoint, chart };
+  }, [pace]);
+
+  const gap = savings.avgSave - savings.budgetedTarget;
+  const onTrack = gap >= 0;
 
   return (
-    <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <SafeAreaView style={styles.safeArea}>
-          <PageHead
-            eyebrow="Goals"
-            title="Big purchases, clear runway"
-            subtitle="Penny starts with a simple savings pace, then compares models as history grows."
-            mascot={<PennyBadge expression="onTrack" />}
-          />
-
-          <Card style={styles.goalCard}>
-            <View style={styles.goalHeader}>
-              <View style={styles.goalCopy}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Home buying
-                </ThemedText>
-                <ThemedText type="subtitle">First home fund</ThemedText>
-              </View>
-              <ThemedText type="smallBold">{Math.round(homeGoal.progress * 100)}%</ThemedText>
+    <Screen
+      eyebrow="Goals"
+      title="Goals"
+      mascot={<PennyBadge expression={onTrack ? 'onTrack' : 'concerned'} />}
+      segments={SEGMENTS}
+      active={active}
+      onSelect={setActive}>
+      {active === 'goal' ? (
+        <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          <Card>
+            <View style={styles.rowBetween}>
+              <ThemedText type="smallBold">First home fund</ThemedText>
+              <Pill label={`${Math.round(homeGoal.progress * 100)}%`} tone="cat" />
             </View>
             <ProgressBar value={homeGoal.progress} />
-            <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(homeGoal.currentSavings)} saved toward {formatMoney(homeGoal.cashNeeded)} cash
-              needed.
-            </ThemedText>
-            <View style={styles.metricGrid}>
-              <Metric label="Target date" value={homeGoal.targetDateLabel} />
-              <Metric label="Savings pace" value={`${formatMoney(homeGoal.monthlySavingsPace)}/mo`} />
-              <Metric label="Cash needed" value={formatMoney(homeGoal.cashNeeded)} />
-              <Metric label="Est. payment" value={`${formatMoney(homeGoal.monthlyPayment)}/mo`} />
-            </View>
-            <ThemedText type="small" themeColor="textSecondary">
-              Cash needed includes {formatMoney(homeGoal.downPayment)} down payment and{' '}
-              {formatMoney(homeGoal.closingCosts)} estimated closing costs.
-            </ThemedText>
-          </Card>
-
-          <Card>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionCopy}>
-                <ThemedText type="smallBold">Savings model</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  The app can keep the methodology quiet, but Penny still compares the signals.
-                </ThemedText>
-              </View>
-              <PennyBadge expression="thinking" animated={false} />
-            </View>
-            <View style={styles.modelRow}>
-              <Metric label="6-mo average" value={`${formatMoney(avgSix)}/mo`} />
-              <Metric label="EWMA pace" value={`${formatMoney(ewma)}/mo`} />
-            </View>
-            <ThemedText type="small" themeColor="success">
-              Current default: EWMA, because it reacts faster to recent saving behavior.
-            </ThemedText>
-          </Card>
-
-          <Card style={styles.chartCard}>
-            <ThemedText type="smallBold">Savings runway</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Budget plan backdrop vs actual pace forecast.
-            </ThemedText>
-            <MiniBarChart
-              data={projection.map((point) => ({
-                label: formatMonth(point.month).replace(' 2026', ''),
-                value: point.actual,
-                comparison: point.budgeted,
-              }))}
-              valueLabel={(value) => formatMoney(value / 1000, 1).replace('$', '$') + 'k'}
-              height={132}
+            <StatRow
+              label="Saved so far"
+              value={formatMoney(homeGoal.currentSavings)}
+              divider={false}
+            />
+            <StatRow label="Cash needed" value={formatMoney(homeGoal.cashNeeded)} />
+            <StatRow label="Target date" value={homeGoal.targetDateLabel} />
+            <StatRow
+              label="Savings pace"
+              value={`${formatMoney(homeGoal.monthlySavingsPace)}/mo`}
+            />
+            <StatRow
+              label="Est. payment"
+              value={`${formatMoney(homeGoal.monthlyPayment)}/mo`}
             />
           </Card>
 
           <Card>
-            <ThemedText type="smallBold">Planned expenses</ThemedText>
-            {mobileSavingsConfig.plannedExpenses.map((expense) => (
-              <View key={`${expense.date}-${expense.description}`} style={styles.listRow}>
-                <View style={styles.rowCopy}>
-                  <ThemedText type="smallBold">{expense.description}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {expense.date}
-                  </ThemedText>
-                </View>
-                <ThemedText type="smallBold">{formatMoney(expense.amount)}</ThemedText>
-              </View>
-            ))}
+            <ThemedText type="smallBold">What the cash covers</ThemedText>
+            <StatRow label="Down payment" value={formatMoney(homeGoal.downPayment)} divider={false} />
+            <StatRow label="Closing costs" value={formatMoney(homeGoal.closingCosts)} />
           </Card>
+        </ScrollView>
+      ) : (
+        <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          <View style={styles.kpiGrid}>
+            <Stat
+              label="Actual pace"
+              value={`${formatMoney(savings.avgSave)}/mo`}
+              delta={onTrack ? 'ahead of plan' : 'behind plan'}
+              trend={onTrack ? 'up' : 'down'}
+              style={styles.kpiTile}
+            />
+            <Stat
+              label="Budget target"
+              value={`${formatMoney(savings.budgetedTarget)}/mo`}
+              delta={`${gap >= 0 ? '+' : '−'}${formatMoney(Math.abs(gap))} gap`}
+              trend={onTrack ? 'up' : 'down'}
+              style={styles.kpiTile}
+            />
+          </View>
 
           <Card>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionCopy}>
-                <ThemedText type="smallBold">Allocation plan</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  The same contribution logic can support retirement, house fund, savings, or any custom goal.
-                </ThemedText>
-              </View>
-              <PillButton>Add</PillButton>
-            </View>
-            {mobileSavingsConfig.allocation.map((allocation) => (
-              <View key={allocation.account} style={styles.listRow}>
-                <View style={styles.rowCopy}>
-                  <ThemedText type="smallBold">{allocation.account}</ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {(allocation.pct * 100).toFixed(0)}% of planned contributions
-                  </ThemedText>
-                </View>
-                <ThemedText type="smallBold">{formatMoney(allocation.monthly)}/mo</ThemedText>
-              </View>
-            ))}
-          </Card>
-
-          <Card>
-            <ThemedText type="smallBold">More goal templates</ThemedText>
+            <ThemedText type="smallBold">Saving pace model</ThemedText>
+            <SegmentedToggle options={PACE_WINDOWS} value={pace} onChange={setPace} />
             <ThemedText type="small" themeColor="textSecondary">
-              Car, emergency fund, vacation, wedding, moving, loan payoff, credit card payoff, or
-              custom.
+              Projected balance in 2 years: {formatMoney(savings.horizonPoint.actual)} (budget says{' '}
+              {formatMoney(savings.horizonPoint.budgeted)}).
             </ThemedText>
-            <PillButton tone="primary">Create goal</PillButton>
+            <TrendBars data={savings.chart} valueLabel={moneyK} />
           </Card>
-        </SafeAreaView>
-      </ScrollView>
-    </ThemedView>
-  );
-}
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.metric}>
-      <ThemedText type="small" themeColor="textSecondary">
-        {label}
-      </ThemedText>
-      <ThemedText type="smallBold">{value}</ThemedText>
-    </View>
+          <Card>
+            <ThemedText type="smallBold">Planned big expenses</ThemedText>
+            {mobileSavingsConfig.plannedExpenses.length === 0 ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                None yet.
+              </ThemedText>
+            ) : (
+              mobileSavingsConfig.plannedExpenses.map((expense, index) => (
+                <StatRow
+                  key={`${expense.date}-${expense.description}`}
+                  label={expense.description}
+                  sublabel={expense.date}
+                  value={formatMoney(expense.amount)}
+                  divider={index > 0}
+                />
+              ))
+            )}
+          </Card>
+        </ScrollView>
+      )}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  panel: {
     flex: 1,
   },
-  scrollContent: {
-    flexGrow: 1,
-    alignItems: 'center',
-    width: '100%',
+  body: {
+    gap: Spacing.three,
+    paddingBottom: PANEL_BOTTOM_INSET,
   },
-  safeArea: {
-    width: '100%',
-    maxWidth: MaxContentWidth,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Platform.OS === 'web' ? Spacing.six + Spacing.three : Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.five,
+  kpiGrid: {
+    flexDirection: 'row',
     gap: Spacing.three,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  headerCopy: {
+  kpiTile: {
     flex: 1,
-    gap: Spacing.one,
   },
-  title: {
-    fontSize: 34,
-    lineHeight: 38,
-  },
-  goalCard: {
-    gap: Spacing.three,
-  },
-  goalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: Spacing.two,
-  },
-  goalCopy: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  metricGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  metric: {
-    flexGrow: 1,
-    flexBasis: '45%',
-    gap: Spacing.half,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  sectionCopy: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  modelRow: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-  },
-  chartCard: {
-    gap: Spacing.two,
-  },
-  listRow: {
+  rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
-  },
-  rowCopy: {
-    flex: 1,
-    gap: Spacing.half,
   },
 });

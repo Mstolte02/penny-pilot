@@ -1,399 +1,317 @@
 import { useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { MiniBarChart } from '@/components/mini-charts';
-import { Card, PageHead, PennyBadge, PillButton, ProgressBar, SectionTotalBar } from '@/components/penny-ui';
+import { RankedBars } from '@/components/mini-charts';
+import {
+  Card,
+  PANEL_BOTTOM_INSET,
+  PennyBadge,
+  Screen,
+  SectionTotalBar,
+  Stat,
+  StatRow,
+} from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import {
-  mobileBudgetPlan,
-  mobileTransactions,
-} from '@/data/personal-finance-template';
-import {
-  budgetGaps,
-  formatMoney,
-  summarizeBudget,
-} from '@/domain/mobile-finance';
+import { colorForCategory, Spacing } from '@/constants/theme';
+import { mobileBudgetPlan, mobileTransactions } from '@/data/personal-finance-template';
+import { formatMoney, summarizeBudget } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
+
+const SEGMENTS = [
+  { label: 'Plan', value: 'plan' },
+  { label: 'To-Do', value: 'todo' },
+];
+
+// 26 biweekly paychecks a year -> monthly amount per paycheck.
+const PER_PAYCHECK = 12 / 26;
+const perPaycheck = (monthly: number) => monthly * PER_PAYCHECK;
+
+const CAR_RE = /transport|gas|auto|vehicle|mainten|fuel|registration|licen[cs]e|\bcar\b/i;
+const LOAN_RE = /student\s*loan/i;
+
+function defaultInJoint(sectionTitle: string, lineName: string) {
+  if (LOAN_RE.test(lineName)) return true;
+  if (sectionTitle === 'Essentials') return !CAR_RE.test(lineName);
+  return false;
+}
+
+const lineKey = (section: string, name: string) => `${section}::${name}`;
+
+type Candidate = {
+  key: string;
+  section: string;
+  name: string;
+  amount: number;
+  isVariable: boolean;
+};
 
 export default function BudgetScreen() {
   const theme = useTheme();
-  const [openSection, setOpenSection] = useState<string | null>('Essentials');
-  const model = useMemo(
+  const [active, setActive] = useState('plan');
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+
+  const budget = useMemo(
     () => summarizeBudget(mobileBudgetPlan, mobileTransactions),
     []
   );
-  const gaps = useMemo(
-    () => budgetGaps(mobileBudgetPlan, mobileTransactions).slice(0, 3),
-    []
+
+  const sectionBars = useMemo(
+    () =>
+      budget.sections
+        .filter((section) => section.total > 0)
+        .map((section) => ({
+          label: section.title,
+          value: section.total,
+          color: colorForCategory(section.title),
+        }))
+        .sort((a, b) => b.value - a.value),
+    [budget]
   );
-  const savingsProgress =
-    model.monthlyIncome > 0 ? Math.max(0, model.monthlySavingsTarget / model.monthlyIncome) : 0;
+
+  const candidates = useMemo<Candidate[]>(() => {
+    const rows: Candidate[] = [];
+    for (const section of budget.sections) {
+      for (const line of section.lines) {
+        rows.push({
+          key: lineKey(section.title, line.name),
+          section: section.title,
+          name: line.name,
+          amount: line.amount,
+          isVariable: line.type === 'variable',
+        });
+      }
+    }
+    return rows;
+  }, [budget]);
+
+  const isIncluded = (candidate: Candidate) =>
+    overrides[candidate.key] ?? defaultInJoint(candidate.section, candidate.name);
+  const jointBase = candidates
+    .filter((candidate) => isIncluded(candidate))
+    .reduce((sum, candidate) => sum + candidate.amount, 0);
+  const savingsContribution = Math.max(0, budget.monthlySavingsTarget);
+  const overBudget = budget.monthlySavingsTarget < 0;
+
+  const earners = mobileBudgetPlan.income.map((income) => {
+    const pct = budget.monthlyIncome > 0 ? income.monthly / budget.monthlyIncome : 0;
+    return {
+      name: income.name,
+      pct,
+      joint: jointBase * pct,
+      savings: savingsContribution * pct,
+      total: (jointBase + savingsContribution) * pct,
+    };
+  });
+
+  const toggle = (candidate: Candidate) =>
+    setOverrides((current) => ({ ...current, [candidate.key]: !isIncluded(candidate) }));
 
   return (
-    <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <SafeAreaView style={styles.safeArea}>
-          <PageHead
-            eyebrow="Budget"
-            title="Fixed, variable, personal"
-            subtitle="Penny starts with a plan, then lets real spending tune the variable lines."
-            mascot={<PennyBadge expression="happy" />}
-          />
-
-          <Card style={styles.heroCard}>
-            <View style={styles.heroTop}>
-              <View>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Planned monthly savings
-                </ThemedText>
-                <ThemedText type="subtitle">
-                  {formatMoney(model.monthlySavingsTarget)}
-                </ThemedText>
-              </View>
-              <View style={[styles.modePill, { backgroundColor: theme.backgroundSelected }]}>
-                <ThemedText type="smallBold" themeColor="primary">
-                  Guided flexible
-                </ThemedText>
-              </View>
-            </View>
-            <ProgressBar value={savingsProgress} />
-            <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(model.monthlyIncome)} income minus {formatMoney(model.totalExpenses)} planned
-              expenses.
-            </ThemedText>
-          </Card>
-
-          <Card style={styles.chartCard}>
-            <ThemedText type="smallBold">Monthly allocation</ThemedText>
-            <MiniBarChart
-              data={[
-                { label: 'Fixed', value: model.fixedTotal },
-                { label: 'Variable', value: model.variableTotal },
-                { label: 'Save', value: Math.max(0, model.monthlySavingsTarget) },
-              ]}
-              valueLabel={(value) => formatMoney(value / 1000, 1).replace('$', '$') + 'k'}
-              height={118}
+    <Screen
+      eyebrow="Budget"
+      title="Budget"
+      mascot={<PennyBadge expression={overBudget ? 'concerned' : 'happy'} />}
+      segments={SEGMENTS}
+      active={active}
+      onSelect={setActive}>
+      {active === 'plan' ? (
+        <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          <Card>
+            <ThemedText type="smallBold">Monthly plan</ThemedText>
+            <StatRow label="Income" value={formatMoney(budget.monthlyIncome)} divider={false} />
+            <StatRow label="Planned expenses" value={formatMoney(budget.totalExpenses)} />
+            <StatRow
+              label="Net savings"
+              value={formatMoney(budget.monthlySavingsTarget)}
+              valueColor={overBudget ? theme.danger : theme.success}
             />
           </Card>
 
-          <View style={styles.grid}>
-            <Card style={styles.metricCard}>
-              <ThemedText type="small" themeColor="textSecondary">
-                Fixed
-              </ThemedText>
-              <ThemedText type="subtitle">{formatMoney(model.fixedTotal)}</ThemedText>
-              <ThemedText type="small">Stable commitments.</ThemedText>
-            </Card>
-            <Card style={styles.metricCard}>
-              <ThemedText type="small" themeColor="textSecondary">
-                Variable
-              </ThemedText>
-              <ThemedText type="subtitle">{formatMoney(model.variableTotal)}</ThemedText>
-              <ThemedText type="small">Forecast from habits.</ThemedText>
-            </Card>
+          <Card>
+            <ThemedText type="smallBold">Where the plan goes</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Planned monthly total by category group.
+            </ThemedText>
+            <RankedBars data={sectionBars} valueLabel={(value) => formatMoney(value)} />
+          </Card>
+        </ScrollView>
+      ) : (
+        <ScrollView style={styles.panel} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+          <View style={styles.kpiGrid}>
+            <Stat
+              label="Joint / mo"
+              value={formatMoney(jointBase)}
+              delta="selected lines"
+              style={styles.kpiTile}
+            />
+            <Stat
+              label="Savings / mo"
+              value={formatMoney(savingsContribution)}
+              delta="after budget"
+              trend={overBudget ? 'down' : 'up'}
+              style={styles.kpiTile}
+            />
           </View>
 
-          <Card style={styles.statementCard}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionCopy}>
-                <ThemedText type="smallBold">Budget statement</ThemedText>
+          {earners.map((earner) => (
+            <Card key={earner.name}>
+              <View style={styles.rowBetween}>
+                <ThemedText type="smallBold" numberOfLines={1} style={styles.personName}>
+                  {earner.name}
+                </ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Income, category totals, and variable forecasts in one scan.
+                  {(earner.pct * 100).toFixed(0)}%
                 </ThemedText>
               </View>
-              <PillButton>Add</PillButton>
-            </View>
+              <StatRow
+                label="Joint checking"
+                sublabel={`${formatMoney(earner.joint)}/mo`}
+                value={`${formatMoney(perPaycheck(earner.joint), 2)}/pay`}
+              />
+              <StatRow
+                label="Savings"
+                sublabel={`${formatMoney(earner.savings)}/mo`}
+                value={`${formatMoney(perPaycheck(earner.savings), 2)}/pay`}
+              />
+              <View style={[styles.personFoot, { backgroundColor: theme.ink }]}>
+                <ThemedText type="small" style={styles.footLabel} numberOfLines={1}>
+                  Total to transfer
+                </ThemedText>
+                <ThemedText type="smallBold" style={styles.footValue} numberOfLines={1}>
+                  {formatMoney(perPaycheck(earner.total), 2)}/pay
+                </ThemedText>
+              </View>
+            </Card>
+          ))}
 
-            <View style={styles.statementRule} />
-            <StatementRow
-              label="Revenue"
-              detail={`${mobileBudgetPlan.income.length} income source templates`}
-              value={formatMoney(model.monthlyIncome)}
-              percent="100%"
-              emphasized
-            />
-
-            {model.sections.map((section, index) => {
-              const expanded = openSection === section.title;
-              const variablePct = section.total > 0 ? section.variableTotal / section.total : 0;
-              const incomePct =
-                model.monthlyIncome > 0 ? `${Math.round((section.total / model.monthlyIncome) * 100)}%` : '0%';
-
+          <Card>
+            <ThemedText type="smallBold">What joint checking covers</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Tap a line to add or remove it from the transfer base.
+            </ThemedText>
+            {candidates.map((candidate) => {
+              const included = isIncluded(candidate);
               return (
-                <View key={section.title} style={styles.sectionBlock}>
-                  <Pressable
-                    onPress={() => setOpenSection(expanded ? null : section.title)}
-                    style={({ pressed }) => [
-                      styles.sectionButton,
+                <Pressable
+                  key={candidate.key}
+                  onPress={() => toggle(candidate)}
+                  style={({ pressed }) => [
+                    styles.coverRow,
+                    { borderTopColor: theme.border, opacity: pressed ? 0.7 : 1 },
+                  ]}>
+                  <View
+                    style={[
+                      styles.checkbox,
                       {
-                        backgroundColor: expanded ? theme.backgroundSelected : theme.backgroundElement,
-                        borderColor: theme.border,
-                        opacity: pressed ? 0.75 : 1,
+                        borderColor: included ? theme.primary : theme.border,
+                        backgroundColor: included ? theme.primary : 'transparent',
                       },
                     ]}>
-                    <View style={[styles.sectionIndex, { backgroundColor: theme.backgroundSelected }]}>
-                      <ThemedText type="smallBold">{index + 1}</ThemedText>
-                    </View>
-                    <View style={styles.sectionButtonCopy}>
-                      <ThemedText type="smallBold">{section.title}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {formatMoney(section.fixedTotal)} fixed / {formatMoney(section.variableTotal)} variable
+                    {included ? (
+                      <ThemedText type="smallBold" style={styles.checkMark}>
+                        ✓
                       </ThemedText>
-                    </View>
-                    <View style={styles.sectionAmount}>
-                      <ThemedText type="smallBold">{formatMoney(section.total)}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {incomePct}
-                      </ThemedText>
-                    </View>
-                  </Pressable>
-
-                  {expanded && (
-                    <View style={styles.lines}>
-                      <ProgressBar value={variablePct} />
-                      {section.lines.map((line) => (
-                        <View key={`${section.title}-${line.name}`} style={styles.budgetRow}>
-                          <View style={styles.lineCopy}>
-                            <ThemedText type="smallBold">{line.name}</ThemedText>
-                            <ThemedText type="small" themeColor="textSecondary">
-                              {line.type === 'fixed' ? 'Fixed expense' : `Variable forecast: ${line.method}`}
-                            </ThemedText>
-                          </View>
-                          <ThemedText type="smallBold">{formatMoney(line.amount)}</ThemedText>
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.coverCopy}>
+                    <ThemedText type="smallBold" numberOfLines={1} style={!included && styles.coverOff}>
+                      {candidate.name}
+                    </ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                      {candidate.section}
+                    </ThemedText>
+                  </View>
+                  <ThemedText type="smallBold" numberOfLines={1} style={!included && styles.coverOff}>
+                    {formatMoney(candidate.amount)}
+                  </ThemedText>
+                </Pressable>
               );
             })}
-
-            <View style={styles.statementRule} />
-            <StatementRow
-              label="Net savings"
-              detail="Income after planned expenses"
-              value={formatMoney(model.monthlySavingsTarget)}
-              percent={`${Math.round(savingsProgress * 100)}%`}
-              emphasized
-            />
           </Card>
 
           <SectionTotalBar
             segments={[
-              { label: 'Income', value: formatMoney(model.monthlyIncome) },
-              { label: 'Expenses', value: formatMoney(model.totalExpenses) },
-              { label: 'Net savings', value: formatMoney(model.monthlySavingsTarget), accent: true },
+              { label: 'Joint', value: formatMoney(jointBase) },
+              { label: 'Savings', value: formatMoney(savingsContribution), accent: true },
+              { label: 'Combined', value: formatMoney(jointBase + savingsContribution) },
             ]}
-            operators={['−', '=']}
+            operators={['+', '=']}
           />
-
-          <Card>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionCopy}>
-                <ThemedText type="smallBold">Budget gaps Penny noticed</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Spending that shows up in history but is not clearly budgeted yet.
-                </ThemedText>
-              </View>
-              <PennyBadge expression="thinking" animated={false} />
-            </View>
-            {gaps.length === 0 ? (
-              <ThemedText type="small" themeColor="success">
-                No obvious gaps in the starter plan.
-              </ThemedText>
-            ) : (
-              gaps.map((gap) => (
-                <View key={`${gap.category}-${gap.subcategory}`} style={styles.gapRow}>
-                  <View style={styles.lineCopy}>
-                    <ThemedText type="smallBold">
-                      {gap.category} / {gap.subcategory}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      Seen across {gap.months} months.
-                    </ThemedText>
-                  </View>
-                  <ThemedText type="smallBold">{formatMoney(gap.suggestedMonthly)}/mo</ThemedText>
-                </View>
-              ))
-            )}
-          </Card>
-        </SafeAreaView>
-      </ScrollView>
-    </ThemedView>
-  );
-}
-
-function StatementRow({
-  label,
-  detail,
-  value,
-  percent,
-  emphasized,
-}: {
-  label: string;
-  detail: string;
-  value: string;
-  percent: string;
-  emphasized?: boolean;
-}) {
-  return (
-    <View style={[styles.statementRow, emphasized && styles.statementRowEmphasized]}>
-      <View style={styles.statementMain}>
-        <ThemedText type={emphasized ? 'smallBold' : 'small'}>{label}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {detail}
-        </ThemedText>
-      </View>
-      <View style={styles.statementNumbers}>
-        <ThemedText type="smallBold">{value}</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          {percent}
-        </ThemedText>
-      </View>
-    </View>
+        </ScrollView>
+      )}
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  panel: {
     flex: 1,
   },
-  scrollContent: {
-    flexGrow: 1,
-    alignItems: 'center',
-    width: '100%',
-  },
-  safeArea: {
-    width: '100%',
-    maxWidth: MaxContentWidth,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Platform.OS === 'web' ? Spacing.six + Spacing.three : Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.five,
+  body: {
     gap: Spacing.three,
+    paddingBottom: PANEL_BOTTOM_INSET,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.three,
-  },
-  headerCopy: {
-    flex: 1,
-    gap: Spacing.one,
-  },
-  title: {
-    fontSize: 34,
-    lineHeight: 38,
-  },
-  heroCard: {
-    gap: Spacing.three,
-  },
-  chartCard: {
-    gap: Spacing.three,
-  },
-  heroTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: Spacing.two,
-  },
-  modePill: {
-    borderRadius: 18,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-  },
-  grid: {
+  kpiGrid: {
     flexDirection: 'row',
     gap: Spacing.three,
   },
-  metricCard: {
+  kpiTile: {
     flex: 1,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  statementCard: {
-    backgroundColor: '#FFFEFA',
-  },
-  statementRule: {
-    height: 2,
-    backgroundColor: '#243B53',
-    opacity: 0.18,
-    borderRadius: 2,
-  },
-  statementRow: {
-    minHeight: 62,
+  rowBetween: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E8DCC7',
   },
-  statementRowEmphasized: {
-    borderBottomWidth: 0,
-  },
-  statementMain: {
+  personName: {
     flex: 1,
-    gap: Spacing.half,
+    fontSize: 16,
   },
-  statementNumbers: {
-    alignItems: 'flex-end',
-    gap: Spacing.half,
-  },
-  sectionCopy: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  sectionBlock: {
-    gap: Spacing.two,
-  },
-  sectionButton: {
-    minHeight: 74,
-    borderWidth: 1,
-    borderRadius: 16,
-    padding: Spacing.three,
+  personFoot: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    gap: Spacing.two,
+    borderRadius: 8,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    marginTop: Spacing.one,
+  },
+  footLabel: {
+    color: '#FFF8E8',
+    opacity: 0.72,
+    flexShrink: 1,
+  },
+  footValue: {
+    color: '#FFFFFF',
+    flexShrink: 0,
+  },
+  coverRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
+    paddingVertical: Spacing.two,
+    borderTopWidth: 1,
   },
-  sectionIndex: {
-    width: 30,
-    height: 30,
+  checkbox: {
+    width: 22,
+    height: 22,
     borderRadius: 6,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionButtonCopy: {
+  checkMark: {
+    color: '#FFF8E8',
+    fontSize: 12,
+  },
+  coverCopy: {
     flex: 1,
+    minWidth: 0,
     gap: Spacing.half,
   },
-  sectionAmount: {
-    alignItems: 'flex-end',
-    gap: Spacing.half,
-  },
-  lines: {
-    gap: Spacing.two,
-  },
-  budgetRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  lineCopy: {
-    flex: 1,
-  },
-  gapRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
+  coverOff: {
+    opacity: 0.4,
   },
 });

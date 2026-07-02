@@ -4,64 +4,54 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-type BarPoint = {
+type TrendPoint = {
   label: string;
   value: number;
-  comparison?: number;
 };
 
-type MiniBarChartProps = {
-  data: BarPoint[];
+type TrendBarsProps = {
+  data: TrendPoint[];
   valueLabel?: (value: number) => string;
   height?: number;
 };
 
-export function MiniBarChart({ data, valueLabel, height = 132 }: MiniBarChartProps) {
+/**
+ * Vertical bars for a value over time. Scaled from a lifted baseline (just below the
+ * smallest value) instead of 0, so month-to-month differences are actually visible —
+ * that's the whole point of a trend chart. The latest bar is highlighted.
+ */
+export function TrendBars({ data, valueLabel, height = 176 }: TrendBarsProps) {
   const theme = useTheme();
-  const max = Math.max(
-    1,
-    ...data.flatMap((point) => [point.value, point.comparison ?? 0])
-  );
+  const values = data.map((point) => point.value);
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  // Lift the baseline when everything is positive so small deltas read as tall/short bars.
+  const base = min > 0 ? min - (max - min) * 0.6 - 1 : min;
+  const span = Math.max(max - base, 1);
+  const barMax = height - 46;
 
   return (
-    <View style={[styles.chart, { height }]}>
-      {data.map((point) => {
-        const barHeight = Math.max(5, (point.value / max) * (height - 38));
-        const comparisonHeight =
-          point.comparison == null ? 0 : Math.max(5, (point.comparison / max) * (height - 38));
+    <View style={[styles.trend, { height }]}>
+      {data.map((point, index) => {
+        const barHeight = Math.max(8, ((point.value - base) / span) * barMax);
+        const isLast = index === data.length - 1;
 
         return (
-          <View key={point.label} style={styles.barColumn}>
-            <View style={styles.barTrack}>
-              {point.comparison != null && (
-                <View
-                  style={[
-                    styles.comparisonBar,
-                    {
-                      height: comparisonHeight,
-                      backgroundColor: theme.backgroundSelected,
-                    },
-                  ]}
-                />
-              )}
-              <View
-                style={[
-                  styles.valueBar,
-                  {
-                    height: barHeight,
-                    backgroundColor: theme.primary,
-                  },
-                ]}
-              />
-            </View>
-            <ThemedText type="small" themeColor="textSecondary" style={styles.barLabel}>
-              {point.label}
-            </ThemedText>
-            {valueLabel && (
-              <ThemedText type="small" style={styles.barValue}>
+          <View key={`${point.label}-${index}`} style={styles.trendColumn}>
+            {valueLabel ? (
+              <ThemedText numberOfLines={1} style={styles.trendValue}>
                 {valueLabel(point.value)}
               </ThemedText>
-            )}
+            ) : null}
+            <View
+              style={[
+                styles.trendBar,
+                { height: barHeight, backgroundColor: isLast ? theme.primary : theme.accent },
+              ]}
+            />
+            <ThemedText numberOfLines={1} themeColor="textSecondary" style={styles.trendLabel}>
+              {point.label}
+            </ThemedText>
           </View>
         );
       })}
@@ -69,39 +59,64 @@ export function MiniBarChart({ data, valueLabel, height = 132 }: MiniBarChartPro
   );
 }
 
-type SparklineProps = {
-  values: number[];
-  labels?: string[];
-  valueLabel?: (value: number) => string;
+type RankedItem = {
+  label: string;
+  value: number;
+  color?: string;
+  delta?: string;
+  deltaUp?: boolean;
 };
 
-export function SparkBars({ values, labels, valueLabel }: SparklineProps) {
+type RankedBarsProps = {
+  data: RankedItem[];
+  valueLabel: (value: number) => string;
+  max?: number;
+};
+
+/**
+ * Horizontal, sorted bars for composition / "biggest items". Distinct from the trend
+ * chart at a glance, and every number sits on one line.
+ */
+export function RankedBars({ data, valueLabel, max: maxProp }: RankedBarsProps) {
   const theme = useTheme();
-  const max = Math.max(1, ...values.map((value) => Math.abs(value)));
+  const max = Math.max(maxProp ?? 0, ...data.map((item) => item.value), 1);
 
   return (
-    <View style={styles.sparkWrap}>
-      {values.map((value, index) => (
-        <View key={`${value}-${index}`} style={styles.sparkColumn}>
+    <View style={styles.ranked}>
+      {data.map((item, index) => (
+        <View key={`${item.label}-${index}`} style={styles.rankedRow}>
+          <View style={styles.rankedTop}>
+            <ThemedText type="smallBold" numberOfLines={1} style={styles.rankedLabel}>
+              {item.label}
+            </ThemedText>
+            <View style={styles.rankedNums}>
+              {item.delta ? (
+                <ThemedText
+                  numberOfLines={1}
+                  style={[
+                    styles.rankedDelta,
+                    { color: item.deltaUp ? theme.danger : theme.success },
+                  ]}>
+                  {item.delta}
+                </ThemedText>
+              ) : null}
+              <ThemedText type="smallBold" numberOfLines={1}>
+                {valueLabel(item.value)}
+              </ThemedText>
+            </View>
+          </View>
           <View
-            style={[
-              styles.sparkBar,
-              {
-                height: Math.max(6, (Math.abs(value) / max) * 70),
-                backgroundColor: value >= 0 ? theme.success : theme.warning,
-              },
-            ]}
-          />
-          {labels?.[index] && (
-            <ThemedText type="small" themeColor="textSecondary" style={styles.sparkLabel}>
-              {labels[index]}
-            </ThemedText>
-          )}
-          {valueLabel && (
-            <ThemedText type="small" style={styles.sparkValue}>
-              {valueLabel(value)}
-            </ThemedText>
-          )}
+            style={[styles.rankedTrack, { backgroundColor: theme.background, borderColor: theme.border }]}>
+            <View
+              style={[
+                styles.rankedFill,
+                {
+                  width: `${Math.max(3, (item.value / max) * 100)}%`,
+                  backgroundColor: item.color ?? theme.primary,
+                },
+              ]}
+            />
+          </View>
         </View>
       ))}
     </View>
@@ -109,68 +124,64 @@ export function SparkBars({ values, labels, valueLabel }: SparklineProps) {
 }
 
 const styles = StyleSheet.create({
-  chart: {
+  trend: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: Spacing.two,
     width: '100%',
   },
-  barColumn: {
+  trendColumn: {
     flex: 1,
     alignItems: 'center',
-    gap: Spacing.half,
+    gap: Spacing.one,
     minWidth: 0,
   },
-  barTrack: {
-    height: '100%',
-    width: '100%',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
+  trendBar: {
+    width: '66%',
+    minWidth: 12,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
   },
-  valueBar: {
-    width: '58%',
-    minWidth: 10,
-    borderTopLeftRadius: 5,
-    borderTopRightRadius: 5,
+  trendValue: {
+    fontSize: 11,
+    fontWeight: 700,
   },
-  comparisonBar: {
-    position: 'absolute',
-    bottom: 0,
-    width: '86%',
-    minWidth: 16,
-    borderTopLeftRadius: 5,
-    borderTopRightRadius: 5,
+  trendLabel: {
+    fontSize: 11,
   },
-  barLabel: {
-    textAlign: 'center',
-    fontSize: 10,
+  ranked: {
+    gap: Spacing.three,
   },
-  barValue: {
-    textAlign: 'center',
-    fontSize: 10,
+  rankedRow: {
+    gap: Spacing.one,
   },
-  sparkWrap: {
-    minHeight: 110,
+  rankedTop: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
     gap: Spacing.two,
   },
-  sparkColumn: {
+  rankedLabel: {
     flex: 1,
-    alignItems: 'center',
-    gap: Spacing.half,
   },
-  sparkBar: {
-    width: '64%',
-    minWidth: 12,
-    borderTopLeftRadius: 5,
-    borderTopRightRadius: 5,
+  rankedNums: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Spacing.two,
+    flexShrink: 0,
   },
-  sparkLabel: {
-    fontSize: 10,
+  rankedDelta: {
+    fontSize: 12,
+    fontWeight: 700,
   },
-  sparkValue: {
-    fontSize: 10,
-    textAlign: 'center',
+  rankedTrack: {
+    height: 10,
+    borderRadius: 999,
+    overflow: 'hidden',
+    borderWidth: 1,
+  },
+  rankedFill: {
+    height: '100%',
+    borderRadius: 999,
   },
 });

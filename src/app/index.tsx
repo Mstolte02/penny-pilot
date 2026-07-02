@@ -4,6 +4,7 @@ import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BankSyncCard } from '@/components/bank-sync-card';
+import { MiniBarChart, SparkBars } from '@/components/mini-charts';
 import { Card, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -50,6 +51,12 @@ export default function HomeScreen() {
       latestIncome,
       latestNet,
       goal,
+      monthlySeries: months.slice(-4).map((month) => ({
+        label: formatMonth(month).replace(' 2026', ''),
+        income: income[month] ?? 0,
+        spend: spend.find((row) => row.month === month)?.total ?? 0,
+        net: net[month] ?? 0,
+      })),
     };
   }, []);
   const budgetProgress =
@@ -95,6 +102,29 @@ export default function HomeScreen() {
             </ThemedText>
           </Card>
 
+          <Card style={styles.chartCard}>
+            <View style={styles.chartHeader}>
+              <View>
+                <ThemedText type="smallBold">Income vs expenses</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  The personal dashboard, compressed for a quick phone read.
+                </ThemedText>
+              </View>
+            </View>
+            <MiniBarChart
+              data={model.monthlySeries.map((point) => ({
+                label: point.label,
+                value: point.spend,
+                comparison: point.income,
+              }))}
+              valueLabel={(value) => formatMoney(value / 1000, 1).replace('$', '$') + 'k'}
+            />
+            <View style={styles.legendRow}>
+              <LegendDot label="Income backdrop" />
+              <LegendDot label="Expenses" filled />
+            </View>
+          </Card>
+
           <View style={styles.grid}>
             <Card style={styles.metricCard}>
               <ThemedText type="small" themeColor="textSecondary">
@@ -111,6 +141,15 @@ export default function HomeScreen() {
               <ThemedText type="small">Income minus spend.</ThemedText>
             </Card>
           </View>
+
+          <Card>
+            <ThemedText type="smallBold">Net savings trend</ThemedText>
+            <SparkBars
+              values={model.monthlySeries.map((point) => point.net)}
+              labels={model.monthlySeries.map((point) => point.label)}
+              valueLabel={(value) => formatMoney(value / 1000, 1).replace('$', '$') + 'k'}
+            />
+          </Card>
 
           <Card>
             <View style={styles.actionHeader}>
@@ -179,6 +218,27 @@ function ActionRow({ title, detail, href }: { title: string; detail: string; hre
   );
 }
 
+function LegendDot({ label, filled }: { label: string; filled?: boolean }) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.legendItem}>
+      <View
+        style={[
+          styles.legendDot,
+          {
+            backgroundColor: filled ? theme.primary : theme.backgroundSelected,
+            borderColor: filled ? theme.primary : theme.border,
+          },
+        ]}
+      />
+      <ThemedText type="small" themeColor="textSecondary">
+        {label}
+      </ThemedText>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -211,6 +271,28 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     gap: Spacing.three,
+  },
+  chartCard: {
+    gap: Spacing.three,
+  },
+  chartHeader: {
+    gap: Spacing.half,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.three,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 3,
+    borderWidth: 1,
   },
   row: {
     flexDirection: 'row',

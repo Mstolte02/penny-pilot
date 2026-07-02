@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MiniBarChart } from '@/components/mini-charts';
 import { Card, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -14,7 +15,9 @@ import {
   avgActualMonthlySavings,
   ewmaMonthlySavings,
   formatMoney,
+  formatMonth,
   homeGoalForecast,
+  projectSavings,
 } from '@/domain/mobile-finance';
 
 export default function GoalsScreen() {
@@ -28,6 +31,20 @@ export default function GoalsScreen() {
   );
   const avgSix = useMemo(() => avgActualMonthlySavings(mobileTransactions, 6), []);
   const ewma = useMemo(() => ewmaMonthlySavings(mobileTransactions), []);
+  const projection = useMemo(() => {
+    const points = projectSavings({
+      startBalance: mobileSavingsConfig.currentSavings,
+      startDate: mobileSavingsConfig.asOfDate,
+      months: 12,
+      budgetedMonthly: mobileSavingsConfig.monthlySavingsTarget,
+      actualMonthly: ewma,
+      plannedExpenses: mobileSavingsConfig.plannedExpenses,
+      recurringExpenses: mobileSavingsConfig.recurringExpenses,
+      apyMonthly: mobileSavingsConfig.savingsApy / 12,
+    });
+
+    return points.filter((_, index) => index % 3 === 0).slice(0, 5);
+  }, [ewma]);
 
   return (
     <ThemedView style={styles.container}>
@@ -92,6 +109,22 @@ export default function GoalsScreen() {
             <ThemedText type="small" themeColor="success">
               Current default: EWMA, because it reacts faster to recent saving behavior.
             </ThemedText>
+          </Card>
+
+          <Card style={styles.chartCard}>
+            <ThemedText type="smallBold">Savings runway</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Budget plan backdrop vs actual pace forecast.
+            </ThemedText>
+            <MiniBarChart
+              data={projection.map((point) => ({
+                label: formatMonth(point.month).replace(' 2026', ''),
+                value: point.actual,
+                comparison: point.budgeted,
+              }))}
+              valueLabel={(value) => formatMoney(value / 1000, 1).replace('$', '$') + 'k'}
+              height={132}
+            />
           </Card>
 
           <Card>
@@ -222,6 +255,9 @@ const styles = StyleSheet.create({
   },
   modelRow: {
     flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  chartCard: {
     gap: Spacing.two,
   },
   listRow: {

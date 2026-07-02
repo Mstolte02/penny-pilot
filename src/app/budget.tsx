@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MiniBarChart } from '@/components/mini-charts';
 import { Card, PennyBadge, PillButton, ProgressBar } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -73,6 +74,19 @@ export default function BudgetScreen() {
             </ThemedText>
           </Card>
 
+          <Card style={styles.chartCard}>
+            <ThemedText type="smallBold">Monthly allocation</ThemedText>
+            <MiniBarChart
+              data={[
+                { label: 'Fixed', value: model.fixedTotal },
+                { label: 'Variable', value: model.variableTotal },
+                { label: 'Save', value: Math.max(0, model.monthlySavingsTarget) },
+              ]}
+              valueLabel={(value) => formatMoney(value / 1000, 1).replace('$', '$') + 'k'}
+              height={118}
+            />
+          </Card>
+
           <View style={styles.grid}>
             <Card style={styles.metricCard}>
               <ThemedText type="small" themeColor="textSecondary">
@@ -90,20 +104,31 @@ export default function BudgetScreen() {
             </Card>
           </View>
 
-          <Card>
+          <Card style={styles.statementCard}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionCopy}>
-                <ThemedText type="smallBold">Budget sections</ThemedText>
+                <ThemedText type="smallBold">Budget statement</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Tap a section to see fixed lines, variable lines, and forecast methods.
+                  Income, category totals, and variable forecasts in one scan.
                 </ThemedText>
               </View>
               <PillButton>Add</PillButton>
             </View>
 
-            {model.sections.map((section) => {
+            <View style={styles.statementRule} />
+            <StatementRow
+              label="Revenue"
+              detail={`${mobileBudgetPlan.income.length} income source templates`}
+              value={formatMoney(model.monthlyIncome)}
+              percent="100%"
+              emphasized
+            />
+
+            {model.sections.map((section, index) => {
               const expanded = openSection === section.title;
               const variablePct = section.total > 0 ? section.variableTotal / section.total : 0;
+              const incomePct =
+                model.monthlyIncome > 0 ? `${Math.round((section.total / model.monthlyIncome) * 100)}%` : '0%';
 
               return (
                 <View key={section.title} style={styles.sectionBlock}>
@@ -117,13 +142,21 @@ export default function BudgetScreen() {
                         opacity: pressed ? 0.75 : 1,
                       },
                     ]}>
+                    <View style={[styles.sectionIndex, { backgroundColor: theme.backgroundSelected }]}>
+                      <ThemedText type="smallBold">{index + 1}</ThemedText>
+                    </View>
                     <View style={styles.sectionButtonCopy}>
                       <ThemedText type="smallBold">{section.title}</ThemedText>
                       <ThemedText type="small" themeColor="textSecondary">
                         {formatMoney(section.fixedTotal)} fixed / {formatMoney(section.variableTotal)} variable
                       </ThemedText>
                     </View>
-                    <ThemedText type="smallBold">{formatMoney(section.total)}</ThemedText>
+                    <View style={styles.sectionAmount}>
+                      <ThemedText type="smallBold">{formatMoney(section.total)}</ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {incomePct}
+                      </ThemedText>
+                    </View>
                   </Pressable>
 
                   {expanded && (
@@ -145,6 +178,15 @@ export default function BudgetScreen() {
                 </View>
               );
             })}
+
+            <View style={styles.statementRule} />
+            <StatementRow
+              label="Net savings"
+              detail="Income after planned expenses"
+              value={formatMoney(model.monthlySavingsTarget)}
+              percent={`${Math.round(savingsProgress * 100)}%`}
+              emphasized
+            />
           </Card>
 
           <Card>
@@ -183,6 +225,37 @@ export default function BudgetScreen() {
   );
 }
 
+function StatementRow({
+  label,
+  detail,
+  value,
+  percent,
+  emphasized,
+}: {
+  label: string;
+  detail: string;
+  value: string;
+  percent: string;
+  emphasized?: boolean;
+}) {
+  return (
+    <View style={[styles.statementRow, emphasized && styles.statementRowEmphasized]}>
+      <View style={styles.statementMain}>
+        <ThemedText type={emphasized ? 'smallBold' : 'small'}>{label}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          {detail}
+        </ThemedText>
+      </View>
+      <View style={styles.statementNumbers}>
+        <ThemedText type="smallBold">{value}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          {percent}
+        </ThemedText>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -216,6 +289,9 @@ const styles = StyleSheet.create({
   heroCard: {
     gap: Spacing.three,
   },
+  chartCard: {
+    gap: Spacing.three,
+  },
   heroTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -240,6 +316,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
   },
+  statementCard: {
+    backgroundColor: '#FFFEFA',
+  },
+  statementRule: {
+    height: 2,
+    backgroundColor: '#243B53',
+    opacity: 0.18,
+    borderRadius: 2,
+  },
+  statementRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8DCC7',
+  },
+  statementRowEmphasized: {
+    borderBottomWidth: 0,
+  },
+  statementMain: {
+    flex: 1,
+    gap: Spacing.half,
+  },
+  statementNumbers: {
+    alignItems: 'flex-end',
+    gap: Spacing.half,
+  },
   sectionCopy: {
     flex: 1,
     gap: Spacing.half,
@@ -257,8 +362,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
   },
+  sectionIndex: {
+    width: 30,
+    height: 30,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sectionButtonCopy: {
     flex: 1,
+    gap: Spacing.half,
+  },
+  sectionAmount: {
+    alignItems: 'flex-end',
     gap: Spacing.half,
   },
   lines: {

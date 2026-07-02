@@ -17,7 +17,14 @@ export function Card({ children, style }: CardProps) {
   return (
     <ThemedView
       type="backgroundElement"
-      style={[styles.card, { borderColor: theme.border }, style]}>
+      style={[
+        styles.card,
+        {
+          borderColor: theme.border,
+          shadowColor: theme.text,
+        },
+        style,
+      ]}>
       {children}
     </ThemedView>
   );
@@ -143,7 +150,8 @@ export function ToggleChip({
       style={({ pressed }) => [
         styles.toggleChip,
         {
-          backgroundColor: selected ? theme.primary : theme.backgroundSelected,
+          backgroundColor: selected ? theme.primary : theme.backgroundElement,
+          borderColor: selected ? theme.primary : theme.border,
           opacity: pressed ? 0.75 : 1,
         },
       ]}>
@@ -173,7 +181,8 @@ export function PillButton({ children, tone = 'quiet', onPress, disabled }: Pill
       style={({ pressed }) => [
         styles.pillButton,
         {
-          backgroundColor: isPrimary ? theme.primary : theme.backgroundSelected,
+          backgroundColor: isPrimary ? theme.primary : theme.backgroundElement,
+          borderColor: isPrimary ? theme.primary : theme.border,
           opacity: disabled ? 0.55 : pressed ? 0.75 : 1,
         },
       ]}>
@@ -194,7 +203,11 @@ export function ProgressBar({ value }: ProgressBarProps) {
   const theme = useTheme();
 
   return (
-    <View style={[styles.progressTrack, { backgroundColor: theme.backgroundSelected }]}>
+    <View
+      style={[
+        styles.progressTrack,
+        { backgroundColor: theme.background, borderColor: theme.border },
+      ]}>
       <View
         style={[
           styles.progressFill,
@@ -210,30 +223,36 @@ export function ProgressBar({ value }: ProgressBarProps) {
 
 const styles = StyleSheet.create({
   card: {
-    borderWidth: 1,
-    borderRadius: 20,
+    borderWidth: 2,
+    borderRadius: 8,
     padding: Spacing.three,
     gap: Spacing.two,
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
   },
   pennyImage: {
-    width: 92,
-    height: 120,
+    width: 82,
+    height: 104,
   },
   pillButton: {
     minHeight: 42,
     paddingHorizontal: Spacing.three,
-    borderRadius: 21,
+    borderRadius: 7,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   progressTrack: {
-    height: 10,
-    borderRadius: 5,
+    height: 11,
+    borderRadius: 999,
     overflow: 'hidden',
+    borderWidth: 1,
   },
   progressFill: {
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 999,
   },
   stepDots: {
     flexDirection: 'row',
@@ -247,7 +266,8 @@ const styles = StyleSheet.create({
   toggleChip: {
     minHeight: 40,
     paddingHorizontal: Spacing.three,
-    borderRadius: 20,
+    borderRadius: 7,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },

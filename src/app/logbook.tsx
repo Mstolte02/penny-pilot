@@ -14,7 +14,7 @@ import {
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { chartPalette, colorForCategory, Spacing } from '@/constants/theme';
-import { mobileBudgetPlan, mobileSavingsConfig, mobileTransactions } from '@/data/personal-finance-template';
+import { mobileSavingsConfig } from '@/data/personal-finance-template';
 import {
   actualMonthlyNet,
   formatMoney,
@@ -26,6 +26,7 @@ import {
   uniqueMonths,
 } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
+import { planFromLines, useFinance } from '@/services/finance-store';
 
 const SEGMENTS = [
   { label: 'Monthly report', value: 'report' },
@@ -67,24 +68,25 @@ type DrillCategory = { name: string; value: number; share: number; color: string
 
 export default function LogbookScreen() {
   const theme = useTheme();
+  const { transactions, planLines } = useFinance();
   const [active, setActive] = useState('report');
   const [weekly, setWeekly] = useState(100);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
   const [openSub, setOpenSub] = useState<string | null>(null);
 
   const base = useMemo(() => {
-    const months = uniqueMonths(mobileTransactions);
-    const spends = monthlySpend(mobileTransactions);
-    const income = monthlyIncome(mobileTransactions);
-    const net = actualMonthlyNet(mobileTransactions);
-    const budget = summarizeBudget(mobileBudgetPlan, mobileTransactions);
+    const months = uniqueMonths(transactions);
+    const spends = monthlySpend(transactions);
+    const income = monthlyIncome(transactions);
+    const net = actualMonthlyNet(transactions);
+    const budget = summarizeBudget(planFromLines(planLines), transactions);
     return { months, spends, income, net, budget };
-  }, []);
+  }, [transactions, planLines]);
 
   const [month, setMonth] = useState(() => base.months[base.months.length - 1] ?? '');
 
   const report = useMemo(() => {
-    const monthExpenses = mobileTransactions.filter(
+    const monthExpenses = transactions.filter(
       (transaction) => transaction.type === 'expense' && monthKey(transaction.date) === month
     );
     const spendM = monthExpenses.reduce((sum, transaction) => sum + transaction.moneyOut, 0);
@@ -136,7 +138,7 @@ export default function LogbookScreen() {
       categories,
       series,
     };
-  }, [base, month]);
+  }, [base, month, transactions]);
 
   const netWorth = useMemo(() => {
     // Anchor the trendline to the real savings balance at its as-of month, then

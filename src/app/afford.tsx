@@ -12,19 +12,23 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing } from '@/constants/theme';
 import { affordVerdicts } from '@/constants/penny-voice';
-import { mobileBudgetPlan, mobileTransactions } from '@/data/personal-finance-template';
 import { formatMoney, safeToSpendToday } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
+import { planFromLines, useFinance } from '@/services/finance-store';
 
 type Verdict = keyof typeof affordVerdicts;
 
 export default function AffordScreen() {
   const theme = useTheme();
+  const { transactions, planLines } = useFinance();
   const [amountText, setAmountText] = useState('');
   const [label, setLabel] = useState('');
   const [verdict, setVerdict] = useState<Verdict | null>(null);
 
-  const safe = useMemo(() => safeToSpendToday(mobileBudgetPlan, mobileTransactions), []);
+  const safe = useMemo(
+    () => safeToSpendToday(planFromLines(planLines), transactions),
+    [planLines, transactions]
+  );
   const amount = Number(amountText.replace(/[^0-9.]/g, '')) || 0;
 
   const runForecast = () => {

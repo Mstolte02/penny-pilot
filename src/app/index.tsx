@@ -16,14 +16,9 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { SETUP_COMPLETE_KEY } from '@/constants/penny-voice';
-import { mobileBudgetPlan, mobileSavingsConfig, mobileTransactions } from '@/data/personal-finance-template';
-import {
-  daysInMonthOf,
-  formatMoney,
-  homeGoalForecast,
-  safeToSpendToday,
-} from '@/domain/mobile-finance';
+import { daysInMonthOf, formatMoney, formatMonth, safeToSpendToday } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
+import { planFromLines, useFinance, type PlanLine, type StoredTransaction } from '@/services/finance-store';
 
 type UpcomingBill = {
   name: string;
@@ -37,16 +32,19 @@ type UpcomingBill = {
  * recent matching transaction when one exists; otherwise they get a stable spread
  * so the prototype always has a believable "next bill".
  */
-function upcomingBills(dayOfMonth: number): UpcomingBill[] {
-  const bills = mobileBudgetPlan.sections
-    .flatMap((section) => section.lines)
-    .filter((line) => line.type === 'fixed' && (line.monthly ?? 0) > 0)
+function upcomingBills(
+  dayOfMonth: number,
+  planLines: PlanLine[],
+  transactions: StoredTransaction[]
+): UpcomingBill[] {
+  const bills = planLines
+    .filter((line) => line.type === 'fixed' && line.amount > 0)
     .map((line, index) => {
-      const lastPosting = [...mobileTransactions]
+      const lastPosting = [...transactions]
         .reverse()
         .find((transaction) => transaction.item === line.name);
       const dueDay = lastPosting ? Number(lastPosting.date.slice(8, 10)) : ((index * 7) % 27) + 2;
-      return { name: line.name, amount: line.monthly ?? 0, dueDay };
+      return { name: line.name, amount: line.amount, dueDay };
     });
 
   return bills
@@ -60,6 +58,7 @@ function upcomingBills(dayOfMonth: number): UpcomingBill[] {
 export default function OverviewScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { transactions, planLines, goals } = useFinance();
 
   // First run belongs to the setup wizard; the flag flips when setup is approved.
   useEffect(() => {
@@ -76,13 +75,15 @@ export default function OverviewScreen() {
 
   const view = useMemo(() => {
     const now = new Date();
-    const safe = safeToSpendToday(mobileBudgetPlan, mobileTransactions, now);
+    const safe = safeToSpendToday(planFromLines(planLines), transactions, now);
     const totalDays = daysInMonthOf(safe.month) || 30;
     const dayOfMonth = Math.min(totalDays, Math.max(1, now.getDate()));
     const datePosition = dayOfMonth / totalDays;
     const burn = safe.flexBudget > 0 ? safe.flexSpent / safe.flexBudget : 0;
-    const bills = upcomingBills(dayOfMonth);
-    const goal = homeGoalForecast({ transactions: mobileTransactions, savings: mobileSavingsConfig });
+    const bills = upcomingBills(dayOfMonth, planLines, transactions);
+    const goal = goals[0] ?? null;
+    const goalProgress = goal && goal.target > 0 ? Math.min(goal.current / goal.target, 1) : 0;
+    const goalArrival = goal ? formatMonth(goal.targetDate) : '';
     const monthName = now.toLocaleDateString('en-US', { month: 'long' });
     const nextBill = bills[0] ?? null;
     const nextBillMonth = new Date(
@@ -91,17 +92,18 @@ export default function OverviewScreen() {
       1
     ).toLocaleDateString('en-US', { month: 'short' });
 
-    const subscriptionsMonthly = mobileBudgetPlan.sections
-      .find((section) => section.title === 'Subscriptions & Fun')!
-      .lines.filter((line) => line.name !== 'Fun Money')
-      .reduce((sum, line) => sum + (line.monthly ?? 0), 0);
+    const subscriptionsMonthly = planLines
+      .filter((line) => line.section === 'Subscriptions & Fun' && line.name !== 'Fun Money')
+      .reduce((sum, line) => sum + line.amount, 0);
 
     const insights = [
       burn <= datePosition
         ? `You're on plan — ${formatMoney(safe.perDay)} a day keeps it that way.`
         : `Spending is a little ahead of the calendar. A quiet week brings it back in line.`,
       `Recurring subscriptions run ${formatMoney(subscriptionsMonthly)}/mo. The full list is on the Transactions tab.`,
-      `${Math.round(goal.progress * 100)}% of the way to your home fund — on track for ${goal.targetDateLabel}.`,
+      goal
+        ? `${Math.round(goalProgress * 100)}% of the way to ${goal.name.toLowerCase()} — on track for ${goalArrival}.`
+        : 'Set a goal on the Plan tab and Penny will chart the arrival date.',
     ];
 
     return {
@@ -112,11 +114,13 @@ export default function OverviewScreen() {
       totalDays,
       monthName,
       goal,
+      goalProgress,
+      goalArrival,
       nextBill,
       nextBillMonth,
       insight: insights[now.getDate() % insights.length],
     };
-  }, []);
+  }, [transactions, planLines, goals]);
 
   const { safe, burn, datePosition } = view;
   const onTrack = burn <= datePosition;
@@ -190,22 +194,24 @@ export default function OverviewScreen() {
           </Pressable>
         ) : null}
 
-        <Pressable onPress={() => router.push('/budget')}>
-          <Card style={styles.stackCard}>
-            <View style={styles.stackRow}>
-              <View style={styles.stackCopy}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Goal progress
-                </ThemedText>
-                <ThemedText type="smallBold" numberOfLines={2}>
-                  First home fund · arrival by {view.goal.targetDateLabel}
-                </ThemedText>
+        {view.goal ? (
+          <Pressable onPress={() => router.push('/budget')}>
+            <Card style={styles.stackCard}>
+              <View style={styles.stackRow}>
+                <View style={styles.stackCopy}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Goal progress
+                  </ThemedText>
+                  <ThemedText type="smallBold" numberOfLines={2}>
+                    {view.goal.name} · arrival by {view.goalArrival}
+                  </ThemedText>
+                </View>
+                <Pill label={`${Math.round(view.goalProgress * 100)}%`} tone="cat" />
               </View>
-              <Pill label={`${Math.round(view.goal.progress * 100)}%`} tone="cat" />
-            </View>
-            <ProgressBar value={view.goal.progress} />
-          </Card>
-        </Pressable>
+              <ProgressBar value={view.goalProgress} />
+            </Card>
+          </Pressable>
+        ) : null}
 
         <SpeechBubble expression={mascot}>{view.insight}</SpeechBubble>
       </ScrollView>

@@ -19,21 +19,28 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { chartPalette, colorForCategory, Radius, Spacing } from '@/constants/theme';
 import { BUDGET_STYLE_KEY } from '@/constants/penny-voice';
-import { mobileBudgetPlan, mobileSavingsConfig, mobileTransactions } from '@/data/personal-finance-template';
+import { mobileBudgetPlan, mobileSavingsConfig } from '@/data/personal-finance-template';
 import type { BudgetStyle } from '@/domain/finance';
 import {
   avgForecast,
-  ewmaForecast,
   EWMA_ALPHA,
   formatMoney,
   formatMonth,
-  homeGoalForecast,
   monthKey,
   projectSavings,
   uniqueMonths,
-  type MobileTransaction,
 } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  forecastLineAmount,
+  lineMatchesTransaction,
+  useFinance,
+  type ForecastMethod,
+  type GoalMode,
+  type GoalPlan,
+  type PlanLine,
+  type PlannedExpensePlan,
+} from '@/services/finance-store';
 
 const SEGMENTS = [
   { label: 'Budget', value: 'budget' },
@@ -41,8 +48,6 @@ const SEGMENTS = [
 ];
 
 const MOVE_AMOUNTS = [25, 50, 100];
-
-type ForecastMethod = 'avg3' | 'avg6' | 'avg9' | 'avg12' | 'ewma';
 
 const METHOD_OPTIONS: { label: string; value: ForecastMethod }[] = [
   { label: '3-mo avg', value: 'avg3' },
@@ -97,35 +102,6 @@ const NEEDS_SECTIONS = new Set([
   'Kids & Family',
 ]);
 
-type PlanLine = {
-  id: string;
-  section: string;
-  name: string;
-  type: 'fixed' | 'flexible';
-  amount: number;
-  method: ForecastMethod;
-  match?: [string, string][];
-};
-
-type GoalMode = 'track' | 'deadline';
-
-type GoalPlan = {
-  id: string;
-  name: string;
-  target: number;
-  current: number;
-  monthlyTarget: number;
-  mode: GoalMode;
-  targetDate: string;
-};
-
-type PlannedExpensePlan = {
-  id: string;
-  name: string;
-  date: string;
-  amount: number;
-};
-
 type GoalEditorDraft = {
   id?: string;
   name: string;
@@ -171,64 +147,22 @@ function methodLabel(method: ForecastMethod) {
   return method === 'ewma' ? `EWMA α ${EWMA_ALPHA}` : `${method.replace('avg', '')}-mo average`;
 }
 
-function lineMatchesTransaction(transaction: MobileTransaction, line: PlanLine) {
-  if (transaction.type !== 'expense') return false;
-
-  if (line.match?.length) {
-    return line.match.some(
-      ([category, subcategory]) =>
-        transaction.category === category &&
-        ((transaction.subcategory ?? 'Uncategorized') === subcategory ||
-          (transaction.subcategory ?? '').startsWith(`${subcategory}:`))
-    );
-  }
-
-  return transaction.category === line.section && transaction.subcategory === line.name;
-}
-
-function lineActuals(line: PlanLine, months: string[]) {
-  return months.map((month) =>
-    mobileTransactions
-      .filter((transaction) => monthKey(transaction.date) === month && lineMatchesTransaction(transaction, line))
-      .reduce((sum, transaction) => sum + transaction.moneyOut, 0)
-  );
-}
-
-function forecastFor(line: PlanLine, method: ForecastMethod) {
-  const values = lineActuals(line, uniqueMonths(mobileTransactions));
-  const amount =
-    method === 'ewma' ? ewmaForecast(values) : avgForecast(values, Number(method.replace('avg', '')));
-  return Math.round(amount);
-}
-
-function seedLines(): PlanLine[] {
-  return mobileBudgetPlan.sections.flatMap((section) =>
-    section.lines.map<PlanLine>((line) => {
-      const base: PlanLine = {
-        id: `${section.title}::${line.name}`,
-        section: section.title,
-        name: line.name,
-        type: line.type === 'fixed' ? 'fixed' : 'flexible',
-        amount: line.monthly ?? 0,
-        method: 'avg6',
-        match: line.match,
-      };
-      if (base.type === 'flexible') {
-        base.amount = forecastFor(base, base.method);
-      }
-      return base;
-    })
-  );
-}
-
 export default function PlanScreen() {
   const theme = useTheme();
   const router = useRouter();
   const params = useLocalSearchParams<{ addName?: string; addAmount?: string }>();
+  const {
+    transactions,
+    planLines: lines,
+    setPlanLines: setLines,
+    adjustments,
+    setAdjustments,
+    goals,
+    setGoals,
+    plannedExpenses,
+    setPlannedExpenses,
+  } = useFinance();
   const [active, setActive] = useState('budget');
-  const [lines, setLines] = useState<PlanLine[]>(() => seedLines());
-  // Reallocation shifts capacity between sections without rewriting individual lines.
-  const [adjustments, setAdjustments] = useState<Record<string, number>>({});
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [moveMode, setMoveMode] = useState(false);
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
@@ -243,38 +177,14 @@ export default function PlanScreen() {
   >(null);
   const [categoryName, setCategoryName] = useState('');
   const [horizon, setHorizon] = useState(24);
-  const [goals, setGoals] = useState<GoalPlan[]>(() => {
-    const home = homeGoalForecast({ transactions: mobileTransactions, savings: mobileSavingsConfig });
-    const transactionMonths = uniqueMonths(mobileTransactions);
-    const startMonth = transactionMonths[transactionMonths.length - 1] ?? mobileSavingsConfig.asOfDate.slice(0, 7);
-    return [
-      {
-        id: 'home',
-        name: 'First home fund',
-        target: Math.round(home.cashNeeded),
-        current: Math.round(home.currentSavings),
-        monthlyTarget: mobileSavingsConfig.monthlySavingsTarget,
-        mode: 'track',
-        targetDate:
-          home.monthsToGoal === null
-            ? monthInputAfter(mobileSavingsConfig.asOfDate, 24)
-            : monthInputAfter(startMonth, home.monthsToGoal),
-      },
-    ];
-  });
   const [selectedGoalId, setSelectedGoalId] = useState('home');
   const [goalEditor, setGoalEditor] = useState<GoalEditorDraft | null>(null);
-  const [plannedExpenses, setPlannedExpenses] = useState<PlannedExpensePlan[]>(() =>
-    mobileSavingsConfig.plannedExpenses.map((expense, index) => ({
-      id: `expense-${index}`,
-      name: expense.description,
-      date: expense.date,
-      amount: expense.amount,
-    }))
-  );
   const [expenseEditor, setExpenseEditor] = useState<PlannedExpenseDraft | null>(null);
 
-  const months = useMemo(() => uniqueMonths(mobileTransactions), []);
+  const forecastFor = (line: PlanLine, method: ForecastMethod) =>
+    forecastLineAmount(line, method, transactions);
+
+  const months = useMemo(() => uniqueMonths(transactions), [transactions]);
   const [month, setMonth] = useState(() => months[months.length - 1] ?? '');
 
   // The style chosen in the setup wizard shapes this screen; changing it here
@@ -306,7 +216,7 @@ export default function PlanScreen() {
         byTitle.get(line.section) ?? { title: line.section, lines: [], capacity: 0, spent: 0 };
       entry.lines.push(line);
       entry.capacity += line.amount;
-      entry.spent += mobileTransactions
+      entry.spent += transactions
         .filter((transaction) => monthKey(transaction.date) === month && lineMatchesTransaction(transaction, line))
         .reduce((sum, transaction) => sum + transaction.moneyOut, 0);
       byTitle.set(line.section, entry);
@@ -315,7 +225,7 @@ export default function PlanScreen() {
       ...section,
       capacity: Math.max(0, section.capacity + (adjustments[section.title] ?? 0)),
     }));
-  }, [lines, month, adjustments]);
+  }, [lines, month, adjustments, transactions]);
 
   const monthlyIncome = mobileBudgetPlan.income.reduce((sum, income) => sum + income.monthly, 0);
   const totalCapacity = sections.reduce((sum, section) => sum + section.capacity, 0);
@@ -518,8 +428,8 @@ export default function PlanScreen() {
   const selectedGoal = goals.find((entry) => entry.id === selectedGoalId) ?? goals[0];
 
   const projection = useMemo(() => {
-    const values = uniqueMonths(mobileTransactions).map((m) =>
-      mobileTransactions
+    const values = uniqueMonths(transactions).map((m) =>
+      transactions
         .filter((transaction) => monthKey(transaction.date) === m)
         .reduce(
           (sum, transaction) =>
@@ -552,7 +462,7 @@ export default function PlanScreen() {
       .filter((index) => index >= 0);
 
     return { points, actualPace, markerIndexes };
-  }, [goals, horizon, plannedExpenses, selectedGoal]);
+  }, [goals, horizon, plannedExpenses, selectedGoal, transactions]);
 
   const goalSummary = useMemo(() => {
     const target = selectedGoal?.target ?? 0;

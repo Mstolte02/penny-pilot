@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import AppTabs from '@/components/app-tabs';
 import { Colors, Fonts } from '@/constants/theme';
 import { ThemePreferenceProvider, useThemePreference } from '@/hooks/theme-preference';
+import { FinanceProvider } from '@/services/finance-store';
 
 function navigationTheme(scheme: 'light' | 'dark') {
   const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
@@ -44,7 +45,9 @@ function ThemedNavigation() {
 export default function TabLayout() {
   return (
     <ThemePreferenceProvider>
-      <ThemedNavigation />
+      <FinanceProvider>
+        <ThemedNavigation />
+      </FinanceProvider>
     </ThemePreferenceProvider>
   );
 }

@@ -1,8 +1,11 @@
+import * as DocumentPicker from 'expo-document-picker';
+import { File as FsFile } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -25,12 +28,18 @@ import { ThemedText } from '@/components/themed-text';
 import { TransactionSourceCard } from '@/components/transaction-source-card';
 import { Radius, Spacing } from '@/constants/theme';
 import { emptyStates } from '@/constants/penny-voice';
-import { mobileBudgetPlan, mobileTransactions } from '@/data/personal-finance-template';
 import type { Category, Subcategory, Transaction } from '@/domain/finance';
 import { formatMoney, monthKey, uniqueMonths } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
 import { categorizationService, financeDataService } from '@/services';
 import type { CategorizationSuggestion } from '@/services/contracts';
+import { buildImportPreview, type ImportPreview } from '@/services/csv-import';
+import {
+  lineMatchesTransaction,
+  useFinance,
+  type PlanLine,
+  type StoredTransaction,
+} from '@/services/finance-store';
 
 const SEGMENTS = [
   { label: 'Transactions', value: 'feed' },
@@ -76,20 +85,6 @@ type DetectedSubscription = {
   inBudget: boolean;
 };
 
-type ManualTransaction = {
-  id: string;
-  date: string;
-  merchantName: string;
-  category: string;
-  amount: number;
-};
-
-type FeedTransactionPatch = {
-  merchantName: string;
-  category: string;
-  amount: number;
-};
-
 type TransactionEditorDraft = {
   mode: 'manual' | 'feed';
   title: string;
@@ -99,6 +94,7 @@ type TransactionEditorDraft = {
   merchantName: string;
   category: string;
   amount: string;
+  kind: 'expense' | 'income';
 };
 
 /**
@@ -106,12 +102,15 @@ type TransactionEditorDraft = {
  * Rent, utilities, insurance, and loan payments recur too, but they're bills —
  * they're excluded by category and by name.
  */
-function detectSubscriptions(): DetectedSubscription[] {
+function detectSubscriptions(
+  transactions: StoredTransaction[],
+  planLines: PlanLine[]
+): DetectedSubscription[] {
   const excludedCategories = new Set(['Essentials', 'Debt', 'Income', 'Health', 'Home']);
-  const monthsAvailable = uniqueMonths(mobileTransactions).length;
-  const byItem = new Map<string, { amounts: number[]; months: Set<string>; sample: (typeof mobileTransactions)[number] }>();
+  const monthsAvailable = uniqueMonths(transactions).length;
+  const byItem = new Map<string, { amounts: number[]; months: Set<string>; sample: StoredTransaction }>();
 
-  for (const transaction of mobileTransactions) {
+  for (const transaction of transactions) {
     if (transaction.type !== 'expense') continue;
     if (excludedCategories.has(transaction.category)) continue;
     if (NOT_SUBSCRIPTION.test(transaction.item)) continue;
@@ -120,10 +119,6 @@ function detectSubscriptions(): DetectedSubscription[] {
     entry.months.add(monthKey(transaction.date));
     byItem.set(transaction.item, entry);
   }
-
-  const budgetLines = mobileBudgetPlan.sections.flatMap((section) =>
-    section.lines.map((line) => ({ section: section.title, line }))
-  );
 
   return Array.from(byItem.entries())
     .filter(([, entry]) => {
@@ -134,16 +129,7 @@ function detectSubscriptions(): DetectedSubscription[] {
     })
     .map(([name, entry]) => {
       const monthly = entry.amounts.reduce((sum, value) => sum + value, 0) / entry.amounts.length;
-      const inBudget = budgetLines.some(({ section, line }) => {
-        if (line.match?.length) {
-          return line.match.some(
-            ([category, subcategory]) =>
-              entry.sample.category === category &&
-              (entry.sample.subcategory ?? 'Uncategorized') === subcategory
-          );
-        }
-        return entry.sample.category === section && entry.sample.subcategory === line.name;
-      });
+      const inBudget = planLines.some((line) => lineMatchesTransaction(entry.sample, line));
       return {
         id: name,
         name,
@@ -159,22 +145,52 @@ function detectSubscriptions(): DetectedSubscription[] {
 export default function TransactionsScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const {
+    transactions: storeTransactions,
+    planLines,
+    addTransactions,
+    updateTransaction,
+    deleteTransaction,
+    cancelFlags,
+    setCancelFlags,
+    transactionEdits,
+    setTransactionEdits,
+    resolvedReviewIds,
+    markReviewResolved,
+    guessCategory,
+  } = useFinance();
   const [active, setActive] = useState('feed');
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [reviewItems, setReviewItems] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<CategoryWithSubcategories[]>([]);
   const [suggestions, setSuggestions] = useState<Record<string, CategorizationSuggestion>>({});
-  const [sortedCount, setSortedCount] = useState(0);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cancelFlags, setCancelFlags] = useState<Record<string, boolean>>({});
-  const [manualTransactions, setManualTransactions] = useState<ManualTransaction[]>([]);
-  const [transactionEdits, setTransactionEdits] = useState<Record<string, FeedTransactionPatch>>({});
   const [editor, setEditor] = useState<TransactionEditorDraft | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [lastImport, setLastImport] = useState<string | null>(null);
 
-  const subscriptions = useMemo(() => detectSubscriptions(), []);
+  const subscriptions = useMemo(
+    () => detectSubscriptions(storeTransactions, planLines),
+    [storeTransactions, planLines]
+  );
   const monthlyBurn = subscriptions.reduce((sum, subscription) => sum + subscription.monthly, 0);
+
+  // Review decisions persist: anything already resolved stays off the radar.
+  const pendingReview = useMemo(() => {
+    const resolved = new Set(resolvedReviewIds);
+    return reviewItems.filter((transaction) => !resolved.has(transaction.id));
+  }, [reviewItems, resolvedReviewIds]);
+
+  const userEntries = useMemo(
+    () =>
+      storeTransactions
+        .filter((transaction) => transaction.source !== 'sample')
+        .sort((a, b) => b.date.localeCompare(a.date)),
+    [storeTransactions]
+  );
 
   const loadFeed = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
     if (mode === 'refresh') setRefreshing(true);
@@ -197,7 +213,7 @@ export default function TransactionsScreen() {
       );
 
       setCategories(loadedCategories);
-      setTransactions(loadedTransactions);
+      setReviewItems(loadedTransactions);
       setSuggestions(
         Object.fromEntries(
           loadedSuggestions
@@ -205,7 +221,6 @@ export default function TransactionsScreen() {
             .map((suggestion) => [suggestion.transactionId, suggestion])
         )
       );
-      setSortedCount(0);
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -221,13 +236,13 @@ export default function TransactionsScreen() {
 
   const groups = useMemo(() => {
     const byDay = new Map<string, Transaction[]>();
-    for (const transaction of transactions) {
+    for (const transaction of pendingReview) {
       const day = byDay.get(transaction.date) ?? [];
       day.push(transaction);
       byDay.set(transaction.date, day);
     }
     return Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [transactions]);
+  }, [pendingReview]);
 
   const guessFor = (transaction: Transaction) => {
     const suggestion = suggestions[transaction.id];
@@ -244,15 +259,16 @@ export default function TransactionsScreen() {
   const confidenceFor = (transaction: Transaction) =>
     confidenceDisplay[suggestions[transaction.id]?.confidence ?? 'none'];
 
-  const openManualEditor = (transaction?: ManualTransaction) => {
+  const openManualEditor = (transaction?: StoredTransaction) => {
     setEditor({
       mode: 'manual',
-      title: transaction ? 'Edit manual transaction' : 'Add manual transaction',
+      title: transaction ? 'Edit entry' : 'Add manual transaction',
       id: transaction?.id,
       date: transaction?.date ?? new Date().toISOString().slice(0, 10),
-      merchantName: transaction?.merchantName ?? '',
+      merchantName: transaction?.item ?? '',
       category: transaction?.category ?? 'Uncategorized',
-      amount: transaction ? String(transaction.amount) : '',
+      amount: transaction ? String(Math.abs(transaction.amount)) : '',
+      kind: transaction?.type === 'income' ? 'income' : 'expense',
     });
   };
 
@@ -266,33 +282,39 @@ export default function TransactionsScreen() {
       merchantName: patch?.merchantName ?? transaction.merchantName,
       category: patch?.category ?? guessFor(transaction),
       amount: String(patch?.amount ?? transaction.amount),
+      kind: 'expense',
     });
   };
 
   const saveEditor = () => {
     if (!editor) return;
-    const amount = Number(editor.amount.replace(/[^0-9.-]/g, '')) || 0;
+    const amount = Math.abs(Number(editor.amount.replace(/[^0-9.]/g, '')) || 0);
     const merchantName = editor.merchantName.trim() || 'Untitled transaction';
     const category = editor.category.trim() || 'Uncategorized';
 
     if (editor.mode === 'manual') {
-      const id = editor.id ?? `manual-${Date.now()}`;
-      setManualTransactions((current) => {
-        const next: ManualTransaction = {
-          id,
-          date: editor.date || new Date().toISOString().slice(0, 10),
-          merchantName,
-          category,
-          amount,
-        };
-        return current.some((entry) => entry.id === id)
-          ? current.map((entry) => (entry.id === id ? next : entry))
-          : [next, ...current];
-      });
+      const isExpense = editor.kind === 'expense';
+      const next: StoredTransaction = {
+        id: editor.id ?? `manual-${Date.now()}`,
+        date: editor.date || new Date().toISOString().slice(0, 10),
+        item: merchantName,
+        moneyIn: isExpense ? 0 : amount,
+        moneyOut: isExpense ? amount : 0,
+        amount: isExpense ? -amount : amount,
+        category: isExpense ? category : 'Income',
+        subcategory: null,
+        type: isExpense ? 'expense' : 'income',
+        source: 'manual',
+      };
+      if (editor.id) {
+        updateTransaction(editor.id, next);
+      } else {
+        addTransactions([next]);
+      }
     } else if (editor.sourceId) {
       setTransactionEdits((current) => ({
         ...current,
-        [editor.sourceId!]: { merchantName, category, amount },
+        [editor.sourceId!]: { merchantName, category, amount: Number(editor.amount.replace(/[^0-9.-]/g, '')) || 0 },
       }));
     }
 
@@ -301,8 +323,58 @@ export default function TransactionsScreen() {
 
   const deleteManual = () => {
     if (!editor?.id) return;
-    setManualTransactions((current) => current.filter((entry) => entry.id !== editor.id));
+    deleteTransaction(editor.id);
     setEditor(null);
+  };
+
+  const importCsv = async () => {
+    setImportError(null);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'text/comma-separated-values', 'text/plain', 'application/csv'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+
+      let text: string;
+      if (Platform.OS === 'web' && asset.file) {
+        text = await asset.file.text();
+      } else {
+        text = await new FsFile(asset.uri).text();
+      }
+
+      const preview = buildImportPreview(text, storeTransactions, guessCategory);
+      if ('error' in preview) {
+        setImportError(preview.error);
+        return;
+      }
+      if (preview.total === 0) {
+        setImportError(
+          preview.duplicates > 0
+            ? 'Every row in that file is already imported.'
+            : 'No readable transactions found in that file.'
+        );
+        return;
+      }
+      setImportPreview(preview);
+    } catch {
+      setImportError('Could not read that file. Make sure it is a CSV export from your bank.');
+    }
+  };
+
+  const confirmImport = () => {
+    if (!importPreview) return;
+    addTransactions(importPreview.transactions);
+    setLastImport(
+      `${importPreview.total} transactions imported` +
+        (importPreview.duplicates > 0 ? ` · ${importPreview.duplicates} duplicates skipped` : '') +
+        (importPreview.uncategorized > 0
+          ? ` · ${importPreview.uncategorized} need a category (tap them below to fix)`
+          : '')
+    );
+    setImportPreview(null);
   };
 
   return (
@@ -310,7 +382,7 @@ export default function TransactionsScreen() {
       eyebrow="Activity"
       title="Transactions"
       subtitle="Synced activity and recurring charges"
-      mascot={<PennyBadge expression={transactions.length === 0 ? 'celebrating' : 'thinking'} />}
+      mascot={<PennyBadge expression={pendingReview.length === 0 ? 'celebrating' : 'thinking'} />}
       segments={SEGMENTS}
       active={active}
       onSelect={setActive}>
@@ -327,54 +399,79 @@ export default function TransactionsScreen() {
             />
           }>
           <View style={styles.statusRow}>
-            <Pill label={`${transactions.length} on radar`} tone="info" />
-            <Pill label={`${sortedCount} sorted`} tone="good" />
+            <Pill label={`${pendingReview.length} on radar`} tone="info" />
+            <Pill label={`${resolvedReviewIds.length} sorted`} tone="good" />
           </View>
 
-          {transactions.length > 0 ? (
+          {pendingReview.length > 0 ? (
             <PillButton tone="primary" onPress={() => setReviewOpen(true)}>
-              Review transactions ({transactions.length})
+              Review transactions ({pendingReview.length})
             </PillButton>
           ) : null}
 
           <Card style={styles.manualCard}>
             <View style={styles.manualTop}>
               <View style={styles.manualCopy}>
-                <ThemedText type="smallBold">Manual transactions</ThemedText>
+                <ThemedText type="smallBold">Manual & imported</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Use this with bank exports, cash, Venmo, or anything you want to correct by hand.
+                  Import a CSV export from your bank, or add cash and Venmo by hand. Everything
+                  lands in your reports.
                 </ThemedText>
               </View>
-              <PillButton tone="primary" onPress={() => openManualEditor()}>
-                Add
-              </PillButton>
             </View>
-            {manualTransactions.length === 0 ? (
+            <View style={styles.importActions}>
+              <PillButton tone="primary" onPress={() => void importCsv()}>
+                Import bank CSV
+              </PillButton>
+              <PillButton onPress={() => openManualEditor()}>Add by hand</PillButton>
+            </View>
+            {importError ? (
+              <ThemedText type="small" style={{ color: theme.danger }}>
+                {importError}
+              </ThemedText>
+            ) : null}
+            {lastImport ? (
+              <ThemedText type="small" style={{ color: theme.success }}>
+                {lastImport}
+              </ThemedText>
+            ) : null}
+            {userEntries.length === 0 ? (
               <ThemedText type="small" themeColor="textSecondary">
-                No manual entries yet.
+                No entries of your own yet.
               </ThemedText>
             ) : (
-              manualTransactions.map((transaction) => (
-                <Pressable
-                  key={transaction.id}
-                  onPress={() => openManualEditor(transaction)}
-                  style={({ pressed }) => [
-                    styles.manualRow,
-                    { borderTopColor: theme.border, opacity: pressed ? 0.72 : 1 },
-                  ]}>
-                  <View style={styles.feedCopy}>
-                    <ThemedText type="smallBold" numberOfLines={1}>
-                      {transaction.merchantName}
+              <>
+                {userEntries.slice(0, 12).map((transaction) => (
+                  <Pressable
+                    key={transaction.id}
+                    onPress={() => openManualEditor(transaction)}
+                    style={({ pressed }) => [
+                      styles.manualRow,
+                      { borderTopColor: theme.border, opacity: pressed ? 0.72 : 1 },
+                    ]}>
+                    <View style={styles.feedCopy}>
+                      <ThemedText type="smallBold" numberOfLines={1}>
+                        {transaction.item}
+                      </ThemedText>
+                      <ThemedText
+                        type="small"
+                        themeColor={transaction.category === 'Uncategorized' ? 'warning' : 'textSecondary'}
+                        numberOfLines={1}>
+                        {dayLabel(transaction.date)} · {transaction.category}
+                        {transaction.source === 'import' ? ' · imported' : ''}
+                      </ThemedText>
+                    </View>
+                    <ThemedText type="money" style={styles.feedAmount}>
+                      {formatTransactionMoney(transaction.amount)}
                     </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                      {dayLabel(transaction.date)} · {transaction.category}
-                    </ThemedText>
-                  </View>
-                  <ThemedText type="money" style={styles.feedAmount}>
-                    {formatTransactionMoney(transaction.amount)}
+                  </Pressable>
+                ))}
+                {userEntries.length > 12 ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    …and {userEntries.length - 12} more in your reports.
                   </ThemedText>
-                </Pressable>
-              ))
+                ) : null}
+              </>
             )}
           </Card>
 
@@ -395,7 +492,7 @@ export default function TransactionsScreen() {
             </Card>
           ) : null}
 
-          {!loading && transactions.length === 0 && !error ? (
+          {!loading && pendingReview.length === 0 && !error ? (
             <Card style={styles.gap}>
               <SpeechBubble expression="celebrating">{emptyStates.allReviewed}</SpeechBubble>
               <PillButton onPress={() => void loadFeed('refresh')}>Check again</PillButton>
@@ -530,16 +627,13 @@ export default function TransactionsScreen() {
       <ReviewModal
         visible={reviewOpen}
         onClose={() => setReviewOpen(false)}
-        transactions={transactions}
+        transactions={pendingReview}
         categories={categories}
         suggestions={suggestions}
-        sortedCount={sortedCount}
-        onResolved={(id) => {
-          setTransactions((current) => current.filter((transaction) => transaction.id !== id));
-          setSortedCount((count) => count + 1);
-        }}
+        sortedCount={resolvedReviewIds.length}
+        onResolved={(id) => markReviewResolved(id)}
         onSkip={(id) => {
-          setTransactions((current) => {
+          setReviewItems((current) => {
             const index = current.findIndex((transaction) => transaction.id === id);
             if (index === -1) return current;
             return [...current.slice(0, index), ...current.slice(index + 1), current[index]];
@@ -554,6 +648,56 @@ export default function TransactionsScreen() {
         onSave={saveEditor}
         onDelete={editor?.mode === 'manual' && editor.id ? deleteManual : undefined}
       />
+      <Modal
+        visible={importPreview !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setImportPreview(null)}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.reviewSheet,
+              { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
+            ]}>
+            <ThemedText type="section">Ready to import</ThemedText>
+            {importPreview ? (
+              <>
+                <ThemedText type="smallBold">
+                  {importPreview.total} transactions
+                  {importPreview.dateRange
+                    ? ` · ${dayLabel(importPreview.dateRange.from)} → ${dayLabel(importPreview.dateRange.to)}`
+                    : ''}
+                </ThemedText>
+                {importPreview.duplicates > 0 ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {importPreview.duplicates} already imported — skipped automatically.
+                  </ThemedText>
+                ) : null}
+                {importPreview.uncategorized > 0 ? (
+                  <ThemedText type="small" themeColor="warning">
+                    {importPreview.uncategorized} new merchants Penny couldn&apos;t categorize yet —
+                    they&apos;ll import as Uncategorized for you to fix.
+                  </ThemedText>
+                ) : null}
+                {importPreview.warnings.map((warning) => (
+                  <ThemedText key={warning} type="small" themeColor="textSecondary">
+                    {warning}
+                  </ThemedText>
+                ))}
+                <SpeechBubble expression="happy">
+                  Everything parses on this device — your bank file never leaves it.
+                </SpeechBubble>
+                <View style={styles.importActions}>
+                  <PillButton tone="primary" onPress={confirmImport}>
+                    Import {importPreview.total}
+                  </PillButton>
+                  <PillButton onPress={() => setImportPreview(null)}>Cancel</PillButton>
+                </View>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -873,6 +1017,20 @@ function TransactionEditorModal({
             keyboardType="decimal-pad"
             placeholder="0.00"
           />
+          {draft?.mode === 'manual' ? (
+            <View style={styles.importActions}>
+              <ToggleChip
+                label="Expense"
+                selected={draft.kind === 'expense'}
+                onPress={() => update({ kind: 'expense' })}
+              />
+              <ToggleChip
+                label="Income"
+                selected={draft.kind === 'income'}
+                onPress={() => update({ kind: 'income' })}
+              />
+            </View>
+          ) : null}
 
           <View style={styles.editorActions}>
             <PillButton tone="primary" onPress={onSave}>
@@ -933,6 +1091,11 @@ const styles = StyleSheet.create({
   },
   statusRow: {
     flexDirection: 'row',
+    gap: Spacing.two,
+  },
+  importActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Spacing.two,
   },
   manualCard: {

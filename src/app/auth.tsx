@@ -9,10 +9,16 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { env } from '@/config/env';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { NOTIFICATION_PREFS_KEY, notificationTemplates } from '@/constants/penny-voice';
+import {
+  BUDGET_STYLE_KEY,
+  NOTIFICATION_PREFS_KEY,
+  notificationTemplates,
+  SETUP_COMPLETE_KEY,
+} from '@/constants/penny-voice';
 import type { UserProfile } from '@/domain/finance';
 import { useThemePreference, type ThemePreference } from '@/hooks/theme-preference';
 import { authService } from '@/services';
+import { useFinance } from '@/services/finance-store';
 
 const APPEARANCE_OPTIONS: { label: string; value: ThemePreference }[] = [
   { label: 'System', value: 'system' },
@@ -66,6 +72,7 @@ const NOTIFICATION_DEFAULTS: Record<NotificationKey, boolean> = {
 export default function AccountScreen() {
   const router = useRouter();
   const { preference, setPreference } = useThemePreference();
+  const { resetToSeeds } = useFinance();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [status, setStatus] = useState<string>('Checking session...');
   const [busy, setBusy] = useState(false);
@@ -89,6 +96,14 @@ export default function AccountScreen() {
       AsyncStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
+  };
+
+  const [confirmingReset, setConfirmingReset] = useState(false);
+
+  const startFresh = async () => {
+    await resetToSeeds();
+    await AsyncStorage.multiRemove([SETUP_COMPLETE_KEY, BUDGET_STYLE_KEY]).catch(() => {});
+    router.replace('/setup');
   };
 
   useEffect(() => {
@@ -232,6 +247,26 @@ export default function AccountScreen() {
             </ThemedText>
             <View style={styles.actions}>
               <PillButton onPress={() => router.push('/setup')}>Summon the wizard</PillButton>
+            </View>
+          </Card>
+
+          <Card>
+            <ThemedText type="smallBold">Start fresh</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Erases everything stored on this device — transactions, budget, goals, imports — and
+              reruns setup from the top. There is no undo.
+            </ThemedText>
+            <View style={styles.actions}>
+              {confirmingReset ? (
+                <>
+                  <PillButton tone="primary" onPress={() => void startFresh()}>
+                    Yes, erase it all
+                  </PillButton>
+                  <PillButton onPress={() => setConfirmingReset(false)}>Keep my data</PillButton>
+                </>
+              ) : (
+                <PillButton onPress={() => setConfirmingReset(true)}>Erase and start fresh</PillButton>
+              )}
             </View>
           </Card>
 

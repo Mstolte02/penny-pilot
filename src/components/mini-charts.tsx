@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -330,10 +330,333 @@ export function RankedBars({ data, valueLabel, max: maxProp }: RankedBarsProps) 
   );
 }
 
+type LinePoint = { label: string; value: number };
+
+export type LineSeries = {
+  points: LinePoint[];
+  color?: string;
+  /** Dashed rendering — used for plan/target lines. */
+  dashed?: boolean;
+  /** Soft fill under the line — used for the actual/primary series. */
+  area?: boolean;
+};
+
+type LineChartProps = {
+  series: LineSeries[];
+  height?: number;
+  formatValue?: (value: number) => string;
+  /** Dots pinned to a specific point, e.g. a planned expense that bends the curve. */
+  markers?: { seriesIndex: number; pointIndex: number; color?: string }[];
+  legend?: { label: string; color: string; dashed?: boolean }[];
+};
+
+function compactMoney(value: number) {
+  if (Math.abs(value) >= 1000) return `$${Math.round(value / 1000)}k`;
+  return `$${Math.round(value)}`;
+}
+
+/**
+ * Line/area chart in the finance_tracker style: solid line with a soft fill for
+ * the actual series, dashed line for the plan, horizontal gridlines with compact
+ * $ labels. Built from positioned/rotated Views — no SVG dependency, renders the
+ * same on iOS, Android, and web.
+ */
+export function LineChart({
+  series,
+  height = 170,
+  formatValue = compactMoney,
+  markers,
+  legend,
+}: LineChartProps) {
+  const theme = useTheme();
+  const [plotWidth, setPlotWidth] = useState(0);
+
+  const allValues = series.flatMap((entry) => entry.points.map((point) => point.value));
+  const rawMax = Math.max(...allValues, 1);
+  const min = Math.min(0, ...allValues);
+  const max = rawMax + (rawMax - min) * 0.06;
+  const span = Math.max(max - min, 1);
+  const plotHeight = height;
+  const yFor = (value: number) => plotHeight - ((value - min) / span) * plotHeight;
+
+  const coords = series.map((entry) => {
+    const n = entry.points.length;
+    return entry.points.map((point, index) => ({
+      x: n > 1 ? (index / (n - 1)) * plotWidth : plotWidth / 2,
+      y: yFor(point.value),
+    }));
+  });
+
+  const xLabels = (() => {
+    const labels = series[0]?.points.map((point) => point.label) ?? [];
+    if (labels.length <= 4) return labels;
+    const picks = [0, Math.round((labels.length - 1) / 3), Math.round(((labels.length - 1) * 2) / 3), labels.length - 1];
+    return picks.map((index) => labels[index]);
+  })();
+
+  const gridFractions = [0, 0.5, 1];
+
+  return (
+    <View style={styles.lineChart}>
+      <View style={styles.lineChartRow}>
+        <View style={[styles.lineYAxis, { height: plotHeight }]}>
+          {gridFractions.map((fraction) => (
+            <ThemedText key={fraction} type="small" themeColor="textSecondary" style={styles.lineYLabel}>
+              {formatValue(max - span * fraction)}
+            </ThemedText>
+          ))}
+        </View>
+        <View
+          style={[styles.linePlot, { height: plotHeight }]}
+          onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}>
+          {gridFractions.map((fraction) => (
+            <View
+              key={fraction}
+              pointerEvents="none"
+              style={[
+                styles.lineGrid,
+                {
+                  top: Math.min(plotHeight - 1, plotHeight * fraction),
+                  backgroundColor: theme.border,
+                },
+              ]}
+            />
+          ))}
+
+          {plotWidth > 0
+            ? series.map((entry, seriesIndex) => {
+                const color = entry.color ?? theme.primary;
+                const points = coords[seriesIndex];
+                const pieces: ReactNode[] = [];
+
+                if (entry.area) {
+                  const columnStep = 6;
+                  for (let segment = 0; segment < points.length - 1; segment += 1) {
+                    const a = points[segment];
+                    const b = points[segment + 1];
+                    const columns = Math.max(1, Math.ceil((b.x - a.x) / columnStep));
+                    for (let column = 0; column < columns; column += 1) {
+                      const t = column / columns;
+                      const x = a.x + (b.x - a.x) * t;
+                      const y = a.y + (b.y - a.y) * t;
+                      pieces.push(
+                        <View
+                          key={`area-${segment}-${column}`}
+                          pointerEvents="none"
+                          style={{
+                            position: 'absolute',
+                            left: x,
+                            top: y,
+                            width: columnStep,
+                            height: Math.max(0, plotHeight - y),
+                            backgroundColor: color,
+                            opacity: 0.12,
+                          }}
+                        />
+                      );
+                    }
+                  }
+                }
+
+                for (let segment = 0; segment < points.length - 1; segment += 1) {
+                  const a = points[segment];
+                  const b = points[segment + 1];
+                  const dx = b.x - a.x;
+                  const dy = b.y - a.y;
+                  const distance = Math.hypot(dx, dy);
+
+                  if (entry.dashed) {
+                    const steps = Math.max(1, Math.round(distance / 8));
+                    for (let step = 0; step <= steps; step += 1) {
+                      const t = step / steps;
+                      pieces.push(
+                        <View
+                          key={`dash-${segment}-${step}`}
+                          pointerEvents="none"
+                          style={{
+                            position: 'absolute',
+                            left: a.x + dx * t - 1.5,
+                            top: a.y + dy * t - 1.5,
+                            width: 3,
+                            height: 3,
+                            borderRadius: 1.5,
+                            backgroundColor: color,
+                            opacity: 0.85,
+                          }}
+                        />
+                      );
+                    }
+                  } else {
+                    const angle = Math.atan2(dy, dx);
+                    pieces.push(
+                      <View
+                        key={`line-${segment}`}
+                        pointerEvents="none"
+                        style={{
+                          position: 'absolute',
+                          left: (a.x + b.x) / 2 - distance / 2,
+                          top: (a.y + b.y) / 2 - 1.25,
+                          width: distance,
+                          height: 2.5,
+                          borderRadius: 1.25,
+                          backgroundColor: color,
+                          transform: [{ rotate: `${angle}rad` }],
+                        }}
+                      />
+                    );
+                  }
+                }
+
+                const last = points[points.length - 1];
+                if (last && !entry.dashed) {
+                  pieces.push(
+                    <View
+                      key="endpoint"
+                      pointerEvents="none"
+                      style={{
+                        position: 'absolute',
+                        left: last.x - 4,
+                        top: last.y - 4,
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: color,
+                        borderWidth: 2,
+                        borderColor: theme.backgroundElement,
+                      }}
+                    />
+                  );
+                }
+
+                return <View key={seriesIndex} pointerEvents="none" style={StyleSheet.absoluteFill}>{pieces}</View>;
+              })
+            : null}
+
+          {plotWidth > 0 && markers
+            ? markers.map((marker, index) => {
+                const point = coords[marker.seriesIndex]?.[marker.pointIndex];
+                if (!point) return null;
+                return (
+                  <View
+                    key={`marker-${index}`}
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      left: point.x - 5,
+                      top: point.y - 5,
+                      width: 10,
+                      height: 10,
+                      borderRadius: 5,
+                      backgroundColor: marker.color ?? theme.danger,
+                      borderWidth: 2,
+                      borderColor: theme.backgroundElement,
+                    }}
+                  />
+                );
+              })
+            : null}
+        </View>
+      </View>
+
+      <View style={styles.lineXAxis}>
+        {xLabels.map((label, index) => (
+          <ThemedText key={`${label}-${index}`} type="small" themeColor="textSecondary" style={styles.lineXLabel}>
+            {label}
+          </ThemedText>
+        ))}
+      </View>
+
+      {legend ? (
+        <View style={styles.lineLegend}>
+          {legend.map((item) => (
+            <View key={item.label} style={styles.lineLegendItem}>
+              {item.dashed ? (
+                <View style={styles.lineLegendDashes}>
+                  {[0, 1, 2].map((dash) => (
+                    <View key={dash} style={[styles.lineLegendDot, { backgroundColor: item.color }]} />
+                  ))}
+                </View>
+              ) : (
+                <View style={[styles.lineLegendSwatch, { backgroundColor: item.color }]} />
+              )}
+              <ThemedText type="small" themeColor="textSecondary">
+                {item.label}
+              </ThemedText>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   trend: {
     width: '100%',
     gap: Spacing.two,
+  },
+  lineChart: {
+    width: '100%',
+    gap: Spacing.one,
+  },
+  lineChartRow: {
+    flexDirection: 'row',
+    gap: Spacing.one,
+  },
+  lineYAxis: {
+    width: 44,
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  lineYLabel: {
+    fontSize: 10,
+    lineHeight: 12,
+  },
+  linePlot: {
+    flex: 1,
+    position: 'relative',
+  },
+  lineGrid: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    opacity: 0.8,
+  },
+  lineXAxis: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingLeft: 44 + Spacing.one,
+  },
+  lineXLabel: {
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  lineLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: Spacing.three,
+    paddingTop: Spacing.one,
+  },
+  lineLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  lineLegendSwatch: {
+    width: 14,
+    height: 3,
+    borderRadius: 1.5,
+  },
+  lineLegendDashes: {
+    flexDirection: 'row',
+    gap: 2,
+  },
+  lineLegendDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
   },
   chartSummary: {
     flexDirection: 'row',
@@ -458,7 +781,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   rankBadgeText: {
-    color: '#13233B',
+    color: '#FFFFFF',
     fontSize: 12,
   },
   rankedNums: {

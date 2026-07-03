@@ -36,7 +36,7 @@ export default function AffordScreen() {
   };
 
   const verdictColor =
-    verdict === 'clear' ? theme.primary : verdict === 'caution' ? theme.warning : theme.danger;
+    verdict === 'clear' ? theme.success : verdict === 'caution' ? theme.warning : theme.danger;
   const verdictMascot =
     verdict === 'clear' ? 'happy' : verdict === 'caution' ? 'thinking' : 'concerned';
   const afterPerDay = (Math.max(0, safe.remaining) - amount) / safe.daysLeft;

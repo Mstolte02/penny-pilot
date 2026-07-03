@@ -403,7 +403,7 @@ export function SectionTotalBar({
             <ThemedText type="small" style={styles.totalSegmentLabel}>
               {segment.label}
             </ThemedText>
-            <ThemedText style={[styles.totalSegmentValue, segment.accent && { color: '#F5B841' }]}>
+            <ThemedText style={[styles.totalSegmentValue, segment.accent && { color: '#D4A24C' }]}>
               {segment.value}
             </ThemedText>
           </View>
@@ -687,7 +687,7 @@ export function FuelGauge({
         ))}
       </View>
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-        {detail ?? `${formatValue(Math.max(0, remaining))} fuel left of ${formatValue(capacity)}`}
+        {detail ?? `${formatValue(Math.max(0, remaining))} left of ${formatValue(capacity)}`}
       </ThemedText>
     </View>
   );
@@ -696,9 +696,10 @@ export function FuelGauge({
 const ARC_SEGMENTS = 25;
 
 /**
- * The altitude gauge: a semicircular arc comparing month progress vs. budget burn.
- * Gold segments fill to the burn fraction; the sky-blue marker sits at today's
- * position in the month. Burn behind the marker = cruising; ahead = turbulence.
+ * Month-pace gauge: a semicircular arc filled to the fraction of the budget spent,
+ * with a marker pinned at today's position in the month. Fill behind the marker
+ * means spending is slower than the calendar; past it means faster. A center slot
+ * states the headline (e.g. "42% spent") so the gauge never needs decoding.
  * Built from positioned dots (same idiom as the chart dotted lines) so it renders
  * identically on iOS, Android, and web with no SVG dependency.
  */
@@ -706,30 +707,41 @@ export function AltitudeArc({
   burn,
   datePosition,
   size = 220,
+  centerLabel,
+  centerSub,
 }: {
   /** Fraction of the monthly budget spent so far (0..1, clamps past 1). */
   burn: number;
   /** Fraction of the month elapsed (0..1). */
   datePosition: number;
   size?: number;
+  /** Headline inside the arc, e.g. "42% spent". */
+  centerLabel?: string;
+  /** Second line inside the arc, e.g. "day 2 of 31". */
+  centerSub?: string;
 }) {
   const theme = useTheme();
   const clampedBurn = Math.max(0, Math.min(burn, 1));
-  const cruising = burn <= datePosition;
+  const onTrack = burn <= datePosition;
   const dotSize = 10;
   const radius = size / 2 - dotSize;
   const centerX = size / 2;
   const centerY = size / 2;
   const filled = Math.round(clampedBurn * ARC_SEGMENTS);
   const markerIndex = Math.max(0, Math.min(Math.round(datePosition * ARC_SEGMENTS), ARC_SEGMENTS));
-
-  const pointAt = (index: number, r = radius) => {
-    const angle = Math.PI - (index / ARC_SEGMENTS) * Math.PI;
+  const marker = (() => {
+    const angle = Math.PI - (markerIndex / ARC_SEGMENTS) * Math.PI;
+    const r = radius + dotSize * 0.1;
     return { x: centerX + Math.cos(angle) * r, y: centerY - Math.sin(angle) * r };
+  })();
+
+  const pointAt = (index: number) => {
+    const angle = Math.PI - (index / ARC_SEGMENTS) * Math.PI;
+    return { x: centerX + Math.cos(angle) * radius, y: centerY - Math.sin(angle) * radius };
   };
 
   return (
-    <View style={{ width: size, height: size / 2 + dotSize, alignSelf: 'center' }}>
+    <View style={{ width: size, height: size / 2 + dotSize * 2, alignSelf: 'center' }}>
       {Array.from({ length: ARC_SEGMENTS + 1 }).map((_, index) => {
         const { x, y } = pointAt(index);
         const on = index <= filled && clampedBurn > 0;
@@ -744,7 +756,7 @@ export function AltitudeArc({
               height: dotSize,
               borderRadius: dotSize / 2,
               backgroundColor: on
-                ? cruising
+                ? onTrack
                   ? theme.primary
                   : theme.warning
                 : theme.backgroundSelected,
@@ -752,24 +764,41 @@ export function AltitudeArc({
           />
         );
       })}
-      {(() => {
-        const { x, y } = pointAt(markerIndex, radius + dotSize * 0.1);
-        return (
-          <View
-            style={{
-              position: 'absolute',
-              left: x - 9,
-              top: y - 9,
-              width: 18,
-              height: 18,
-              borderRadius: 9,
-              borderWidth: 3,
-              borderColor: theme.background,
-              backgroundColor: theme.accent,
-            }}
-          />
-        );
-      })()}
+      <View
+        style={{
+          position: 'absolute',
+          left: marker.x - 9,
+          top: marker.y - 9,
+          width: 18,
+          height: 18,
+          borderRadius: 9,
+          borderWidth: 3,
+          borderColor: theme.backgroundElement,
+          backgroundColor: theme.ink,
+        }}
+      />
+      {centerLabel ? (
+        <View
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: size * 0.22,
+            alignItems: 'center',
+            gap: 2,
+          }}>
+          <ThemedText
+            type="hero"
+            style={{ fontSize: 30, lineHeight: 34, color: onTrack ? theme.primary : theme.warning }}>
+            {centerLabel}
+          </ThemedText>
+          {centerSub ? (
+            <ThemedText type="small" themeColor="textSecondary">
+              {centerSub}
+            </ThemedText>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }

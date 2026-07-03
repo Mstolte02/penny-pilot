@@ -27,16 +27,16 @@ export default function AppTabs() {
       <TabList asChild>
         <TabBar>
           <TabTrigger name="index" href="/" asChild>
-            <TabButton>Cockpit</TabButton>
+            <TabButton>Overview</TabButton>
           </TabTrigger>
           <TabTrigger name="transactions" href="/transactions" asChild>
-            <TabButton>Radar</TabButton>
+            <TabButton>Transactions</TabButton>
           </TabTrigger>
           <TabTrigger name="afford" href="/afford" asChild>
             <AffordButton />
           </TabTrigger>
           <TabTrigger name="budget" href="/budget" asChild>
-            <TabButton>Flight Plan</TabButton>
+            <TabButton>Plan</TabButton>
           </TabTrigger>
           <TabTrigger name="logbook" href="/logbook" asChild>
             <TabButton>Logbook</TabButton>
@@ -74,7 +74,9 @@ function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps) {
       <ThemedText
         type="smallBold"
         numberOfLines={1}
-        style={{ color: isFocused ? theme.primary : theme.textSecondary, fontSize: 12.5 }}>
+        adjustsFontSizeToFit
+        minimumFontScale={0.75}
+        style={{ color: isFocused ? theme.primary : theme.textSecondary, fontSize: 12 }}>
         {children}
       </ThemedText>
     </Pressable>
@@ -95,7 +97,7 @@ function AffordButton({ isFocused, ...props }: TabTriggerSlotProps) {
           styles.affordCircle,
           {
             backgroundColor: theme.primary,
-            borderColor: isFocused ? theme.text : theme.ink,
+            borderColor: isFocused ? theme.primaryHover : theme.backgroundElement,
             shadowColor: theme.primary,
           },
         ]}>
@@ -105,7 +107,7 @@ function AffordButton({ isFocused, ...props }: TabTriggerSlotProps) {
         type="smallBold"
         numberOfLines={1}
         style={{ color: isFocused ? theme.primary : theme.textSecondary, fontSize: 10.5 }}>
-        Afford this?
+        Afford?
       </ThemedText>
     </Pressable>
   );
@@ -120,7 +122,7 @@ function TabBar(props: TabListProps) {
       <View
         style={[
           styles.tabBarInner,
-          { backgroundColor: theme.ink, borderColor: theme.borderStrong },
+          { backgroundColor: theme.backgroundElement, borderColor: theme.border },
         ]}>
         {props.children}
       </View>
@@ -146,11 +148,11 @@ const styles = StyleSheet.create({
     borderRadius: Radius.card + 8,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
-    shadowColor: '#000000',
-    shadowOpacity: 0.35,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
+    shadowColor: '#3A2E20',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
   tabButton: {
     flex: 1,

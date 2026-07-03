@@ -33,9 +33,9 @@ type UpcomingBill = {
 };
 
 /**
- * Fixed budget lines double as the bill radar. Due days come from the most recent
- * matching transaction when one exists; otherwise they get a stable spread so the
- * prototype always has a believable "next bill".
+ * Fixed budget lines double as the bill reminder list. Due days come from the most
+ * recent matching transaction when one exists; otherwise they get a stable spread
+ * so the prototype always has a believable "next bill".
  */
 function upcomingBills(dayOfMonth: number): UpcomingBill[] {
   const bills = mobileBudgetPlan.sections
@@ -57,11 +57,11 @@ function upcomingBills(dayOfMonth: number): UpcomingBill[] {
     .sort((a, b) => a.monthOffset - b.monthOffset || a.dueDay - b.dueDay);
 }
 
-export default function CockpitScreen() {
+export default function OverviewScreen() {
   const router = useRouter();
   const theme = useTheme();
 
-  // First run belongs to the wizard. The flag flips when the flight plan is approved.
+  // First run belongs to the setup wizard; the flag flips when setup is approved.
   useEffect(() => {
     let mounted = true;
     AsyncStorage.getItem(SETUP_COMPLETE_KEY)
@@ -98,16 +98,18 @@ export default function CockpitScreen() {
 
     const insights = [
       burn <= datePosition
-        ? `Skies are clear — ${formatMoney(safe.perDay)} a day keeps this month on plan.`
-        : `Spending is a little ahead of the calendar. A quiet week brings the lines back together.`,
-      `Recurring subscriptions run ${formatMoney(subscriptionsMonthly)}/mo. The full list is on the Radar tab.`,
-      `${Math.round(goal.progress * 100)}% of the way to your home fund — arrival around ${goal.targetDateLabel}.`,
+        ? `You're on plan — ${formatMoney(safe.perDay)} a day keeps it that way.`
+        : `Spending is a little ahead of the calendar. A quiet week brings it back in line.`,
+      `Recurring subscriptions run ${formatMoney(subscriptionsMonthly)}/mo. The full list is on the Transactions tab.`,
+      `${Math.round(goal.progress * 100)}% of the way to your home fund — on track for ${goal.targetDateLabel}.`,
     ];
 
     return {
       safe,
       burn,
       datePosition,
+      dayOfMonth,
+      totalDays,
       monthName,
       goal,
       nextBill,
@@ -117,23 +119,25 @@ export default function CockpitScreen() {
   }, []);
 
   const { safe, burn, datePosition } = view;
-  const cruising = burn <= datePosition;
-  const grounded = safe.perDay <= 0;
-  const heroColor = grounded ? theme.danger : theme.primary;
-  const mascot = grounded ? 'concerned' : cruising ? 'onTrack' : 'thinking';
+  const onTrack = burn <= datePosition;
+  const overBudget = safe.perDay <= 0;
+  const heroColor = overBudget ? theme.danger : theme.primary;
+  const mascot = overBudget ? 'concerned' : onTrack ? 'onTrack' : 'thinking';
+  const burnPct = Math.round(Math.min(burn, 1) * 100);
+  const datePct = Math.round(datePosition * 100);
 
   return (
     <Screen
       eyebrow="Penny Pilot"
-      title="Cockpit"
-      subtitle={`${view.monthName} flight in progress`}
+      title="Overview"
+      subtitle={`${view.monthName} at a glance`}
       mascot={<PennyBadge expression={mascot} />}>
       <ScrollView
         style={styles.panel}
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <ThemedText type="smallBold" style={[styles.heroLabel, { color: theme.accent }]}>
+          <ThemedText type="smallBold" style={[styles.heroLabel, { color: theme.secondary }]}>
             SAFE TO SPEND TODAY
           </ThemedText>
           <ThemedText
@@ -146,30 +150,27 @@ export default function CockpitScreen() {
           </ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
             ~{formatMoney(safe.dailyTarget)}/day plan · {safe.daysLeft}{' '}
-            {safe.daysLeft === 1 ? 'day' : 'days'} left in the month
+            {safe.daysLeft === 1 ? 'day' : 'days'} left in {view.monthName}
           </ThemedText>
         </View>
 
-        <View style={styles.gaugeBlock}>
-          <AltitudeArc burn={burn} datePosition={datePosition} />
-          <View style={styles.gaugeLegend}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendSwatch, { backgroundColor: cruising ? theme.primary : theme.warning }]} />
-              <ThemedText type="small" themeColor="textSecondary">
-                Budget burn
-              </ThemedText>
-            </View>
-            <ThemedText type="smallBold" style={{ color: cruising ? theme.primary : theme.warning }}>
-              {cruising ? 'Cruising altitude' : 'Light turbulence'}
-            </ThemedText>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendSwatch, { backgroundColor: theme.accent }]} />
-              <ThemedText type="small" themeColor="textSecondary">
-                Today
-              </ThemedText>
-            </View>
+        <Card style={styles.gaugeCard}>
+          <View style={styles.gaugeHead}>
+            <ThemedText type="smallBold">Month progress</ThemedText>
+            <Pill label={onTrack ? 'On track' : 'Ahead of pace'} tone={onTrack ? 'good' : 'bad'} />
           </View>
-        </View>
+          <AltitudeArc
+            burn={burn}
+            datePosition={datePosition}
+            centerLabel={`${burnPct}% spent`}
+            centerSub={`day ${view.dayOfMonth} of ${view.totalDays}`}
+          />
+          <ThemedText type="small" themeColor="textSecondary" style={styles.gaugeCaption}>
+            The fill is how much of {view.monthName}&apos;s flexible budget is spent ({burnPct}%).
+            The dark pin marks today ({datePct}% through the month) — staying behind the pin means
+            you&apos;re on track.
+          </ThemedText>
+        </Card>
 
         {view.nextBill ? (
           <Pressable onPress={() => router.push('/transactions')}>
@@ -177,9 +178,9 @@ export default function CockpitScreen() {
               <View style={styles.stackRow}>
                 <View style={styles.stackCopy}>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Next bill on approach
+                    Next bill
                   </ThemedText>
-                  <ThemedText type="smallBold" numberOfLines={1}>
+                  <ThemedText type="smallBold" numberOfLines={2}>
                     {view.nextBill.name} · {view.nextBillMonth} {view.nextBill.dueDay}
                   </ThemedText>
                 </View>
@@ -196,10 +197,10 @@ export default function CockpitScreen() {
             <View style={styles.stackRow}>
               <View style={styles.stackCopy}>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Destination
+                  Goal progress
                 </ThemedText>
-                <ThemedText type="smallBold" numberOfLines={1}>
-                  First home fund · arrives ~{view.goal.targetDateLabel}
+                <ThemedText type="smallBold" numberOfLines={2}>
+                  First home fund · arrival by {view.goal.targetDateLabel}
                 </ThemedText>
               </View>
               <Pill label={`${Math.round(view.goal.progress * 100)}%`} tone="cat" />
@@ -225,30 +226,23 @@ const styles = StyleSheet.create({
   hero: {
     alignItems: 'center',
     gap: Spacing.one,
-    paddingTop: Spacing.three,
+    paddingTop: Spacing.two,
   },
   heroLabel: {
     letterSpacing: 2,
     fontSize: 12,
   },
-  gaugeBlock: {
+  gaugeCard: {
     gap: Spacing.two,
   },
-  gaugeLegend: {
+  gaugeHead: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  legendSwatch: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  gaugeCaption: {
+    textAlign: 'center',
   },
   stackCard: {
     gap: Spacing.two,

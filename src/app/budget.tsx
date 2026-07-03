@@ -1,7 +1,8 @@
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
-import { TrendBars } from '@/components/mini-charts';
+import { LineChart } from '@/components/mini-charts';
 import {
   Card,
   FuelGauge,
@@ -16,11 +17,12 @@ import {
   ToggleChip,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { chartPalette, Radius, Spacing } from '@/constants/theme';
 import { mobileBudgetPlan, mobileSavingsConfig, mobileTransactions } from '@/data/personal-finance-template';
 import {
-  avgActualMonthlySavings,
-  ewmaMonthlySavings,
+  avgForecast,
+  ewmaForecast,
+  EWMA_ALPHA,
   formatMoney,
   formatMonth,
   homeGoalForecast,
@@ -32,23 +34,51 @@ import {
 import { useTheme } from '@/hooks/use-theme';
 
 const SEGMENTS = [
-  { label: 'Fuel', value: 'fuel' },
+  { label: 'Budget', value: 'budget' },
   { label: 'Goals', value: 'goals' },
 ];
 
 const MOVE_AMOUNTS = [25, 50, 100];
 
+type ForecastMethod = 'avg3' | 'avg6' | 'avg9' | 'avg12' | 'ewma';
+
+const METHOD_OPTIONS: { label: string; value: ForecastMethod }[] = [
+  { label: '3-mo avg', value: 'avg3' },
+  { label: '6-mo avg', value: 'avg6' },
+  { label: '9-mo avg', value: 'avg9' },
+  { label: '12-mo avg', value: 'avg12' },
+  { label: 'EWMA', value: 'ewma' },
+];
+
+const PACE_OPTIONS: { label: string; value: number | 'ewma' }[] = [
+  { label: '3-mo', value: 3 },
+  { label: '6-mo', value: 6 },
+  { label: '12-mo', value: 12 },
+  { label: 'EWMA', value: 'ewma' },
+];
+
+const HORIZON_OPTIONS = [
+  { label: '1 year', value: 12 },
+  { label: '2 years', value: 24 },
+  { label: '3 years', value: 36 },
+];
+
 type PlanLine = {
   id: string;
   section: string;
   name: string;
-  type: 'fixed' | 'variable';
+  type: 'fixed' | 'flexible';
   amount: number;
+  method: ForecastMethod;
   match?: [string, string][];
 };
 
 function shortMonth(month: string) {
   return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
+}
+
+function methodLabel(method: ForecastMethod) {
+  return method === 'ewma' ? `EWMA α ${EWMA_ALPHA}` : `${method.replace('avg', '')}-mo average`;
 }
 
 function lineMatchesTransaction(transaction: MobileTransaction, line: PlanLine) {
@@ -66,46 +96,57 @@ function lineMatchesTransaction(transaction: MobileTransaction, line: PlanLine) 
   return transaction.category === line.section && transaction.subcategory === line.name;
 }
 
-function seedLines(): PlanLine[] {
-  const months = uniqueMonths(mobileTransactions);
-  const recent = months.slice(-6);
+function lineActuals(line: PlanLine, months: string[]) {
+  return months.map((month) =>
+    mobileTransactions
+      .filter((transaction) => monthKey(transaction.date) === month && lineMatchesTransaction(transaction, line))
+      .reduce((sum, transaction) => sum + transaction.moneyOut, 0)
+  );
+}
 
+function forecastFor(line: PlanLine, method: ForecastMethod) {
+  const values = lineActuals(line, uniqueMonths(mobileTransactions));
+  const amount =
+    method === 'ewma' ? ewmaForecast(values) : avgForecast(values, Number(method.replace('avg', '')));
+  return Math.round(amount);
+}
+
+function seedLines(): PlanLine[] {
   return mobileBudgetPlan.sections.flatMap((section) =>
     section.lines.map<PlanLine>((line) => {
       const base: PlanLine = {
         id: `${section.title}::${line.name}`,
         section: section.title,
         name: line.name,
-        type: line.type === 'fixed' ? 'fixed' : 'variable',
+        type: line.type === 'fixed' ? 'fixed' : 'flexible',
         amount: line.monthly ?? 0,
+        method: 'avg6',
         match: line.match,
       };
-      if (base.amount === 0 && base.type === 'variable') {
-        const totals = recent.map((month) =>
-          mobileTransactions
-            .filter((transaction) => monthKey(transaction.date) === month && lineMatchesTransaction(transaction, base))
-            .reduce((sum, transaction) => sum + transaction.moneyOut, 0)
-        );
-        base.amount = totals.length
-          ? Math.round(totals.reduce((sum, value) => sum + value, 0) / totals.length)
-          : 0;
+      if (base.type === 'flexible') {
+        base.amount = forecastFor(base, base.method);
       }
       return base;
     })
   );
 }
 
-export default function FlightPlanScreen() {
+export default function PlanScreen() {
   const theme = useTheme();
-  const [active, setActive] = useState('fuel');
+  const router = useRouter();
+  const params = useLocalSearchParams<{ addName?: string; addAmount?: string }>();
+  const [active, setActive] = useState('budget');
   const [lines, setLines] = useState<PlanLine[]>(() => seedLines());
-  // Envelope reallocation lives here: moving fuel shifts capacity between
-  // sections without rewriting individual lines.
+  // Reallocation shifts capacity between sections without rewriting individual lines.
   const [adjustments, setAdjustments] = useState<Record<string, number>>({});
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [moveMode, setMoveMode] = useState(false);
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
   const [moveTo, setMoveTo] = useState<string | null>(null);
+  const [methodLineId, setMethodLineId] = useState<string | null>(null);
+  const [addSection, setAddSection] = useState('Subscriptions & Fun');
+  const [pace, setPace] = useState<number | 'ewma'>('ewma');
+  const [horizon, setHorizon] = useState(24);
 
   const months = useMemo(() => uniqueMonths(mobileTransactions), []);
   const [month, setMonth] = useState(() => months[months.length - 1] ?? '');
@@ -132,6 +173,12 @@ export default function FlightPlanScreen() {
   const totalCapacity = sections.reduce((sum, section) => sum + section.capacity, 0);
   const savingsTarget = monthlyIncome - totalCapacity;
   const overCommitted = savingsTarget < 0;
+  const methodLine = lines.find((line) => line.id === methodLineId) ?? null;
+
+  const pendingAdd =
+    params.addName && params.addAmount
+      ? { name: String(params.addName), amount: Number(params.addAmount) || 0 }
+      : null;
 
   const moveFuel = (amount: number) => {
     if (!moveFrom || !moveTo || moveFrom === moveTo) return;
@@ -142,53 +189,111 @@ export default function FlightPlanScreen() {
     }));
   };
 
-  const updateLineAmount = (id: string, amount: number) =>
-    setLines((current) => current.map((line) => (line.id === id ? { ...line, amount } : line)));
+  const updateLine = (id: string, patch: Partial<PlanLine>) =>
+    setLines((current) =>
+      current.map((line) => {
+        if (line.id !== id) return line;
+        const next = { ...line, ...patch };
+        if (next.type === 'flexible' && (patch.type === 'flexible' || patch.method)) {
+          next.amount = forecastFor(next, next.method);
+        }
+        return next;
+      })
+    );
+
+  const addPendingToPlan = () => {
+    if (!pendingAdd) return;
+    setLines((current) => [
+      ...current,
+      {
+        id: `${addSection}::${pendingAdd.name}`,
+        section: addSection,
+        name: pendingAdd.name,
+        type: 'fixed',
+        amount: Math.round(pendingAdd.amount),
+        method: 'avg6',
+      },
+    ]);
+    setOpenSection(addSection);
+    router.setParams({ addName: '', addAmount: '' });
+  };
 
   const goal = useMemo(
     () => homeGoalForecast({ transactions: mobileTransactions, savings: mobileSavingsConfig }),
     []
   );
-  const savings = useMemo(() => {
-    const budgetedTarget = mobileSavingsConfig.monthlySavingsTarget;
-    const pace = ewmaMonthlySavings(mobileTransactions);
-    const avg6 = avgActualMonthlySavings(mobileTransactions, 6);
-    const projection = projectSavings({
+
+  const projection = useMemo(() => {
+    const values = uniqueMonths(mobileTransactions).map((m) =>
+      mobileTransactions
+        .filter((transaction) => monthKey(transaction.date) === m)
+        .reduce(
+          (sum, transaction) =>
+            sum + (transaction.type === 'income' ? transaction.moneyIn : -transaction.moneyOut),
+          0
+        )
+    );
+    const actualPace = pace === 'ewma' ? ewmaForecast(values) : avgForecast(values, pace);
+    const points = projectSavings({
       startBalance: mobileSavingsConfig.currentSavings,
       startDate: mobileSavingsConfig.asOfDate,
-      months: 24,
-      budgetedMonthly: budgetedTarget,
-      actualMonthly: pace,
+      months: horizon,
+      budgetedMonthly: mobileSavingsConfig.monthlySavingsTarget,
+      actualMonthly: actualPace,
       plannedExpenses: mobileSavingsConfig.plannedExpenses,
       recurringExpenses: mobileSavingsConfig.recurringExpenses,
       apyMonthly: mobileSavingsConfig.savingsApy / 12,
     });
-    const step = Math.max(1, Math.ceil(projection.length / 6));
-    return {
-      budgetedTarget,
-      pace,
-      avg6,
-      chart: projection
-        .filter((_, index) => index % step === 0)
-        .map((point) => ({ label: shortMonth(point.month), value: point.actual })),
-    };
-  }, []);
-  const onPace = savings.pace >= savings.budgetedTarget;
+    const expenseMonths = new Set(
+      mobileSavingsConfig.plannedExpenses.map((expense) => expense.date.slice(0, 7))
+    );
+    const markerIndexes = points
+      .map((point, index) => (expenseMonths.has(point.month) ? index : -1))
+      .filter((index) => index >= 0);
+
+    return { points, actualPace, markerIndexes };
+  }, [pace, horizon]);
 
   return (
     <Screen
-      eyebrow="Flight Plan"
-      title="Flight Plan"
-      subtitle="Fuel for the month, destinations beyond it"
+      eyebrow="Plan"
+      title="Plan"
+      subtitle="This month's budget and the goals beyond it"
       mascot={<PennyBadge expression={overCommitted ? 'concerned' : 'happy'} />}
       segments={SEGMENTS}
       active={active}
       onSelect={setActive}>
-      {active === 'fuel' ? (
+      {active === 'budget' ? (
         <ScrollView
           style={styles.panel}
           contentContainerStyle={styles.body}
           showsVerticalScrollIndicator={false}>
+          {pendingAdd ? (
+            <Card style={[styles.addCard, { borderColor: theme.primary }]}>
+              <ThemedText type="smallBold">
+                Add {pendingAdd.name} ({formatMoney(pendingAdd.amount)}/mo) to your budget?
+              </ThemedText>
+              <View style={styles.chips}>
+                {sections.map((section) => (
+                  <ToggleChip
+                    key={section.title}
+                    label={section.title}
+                    selected={addSection === section.title}
+                    onPress={() => setAddSection(section.title)}
+                  />
+                ))}
+              </View>
+              <View style={styles.addActions}>
+                <PillButton tone="primary" onPress={addPendingToPlan}>
+                  Add to {addSection}
+                </PillButton>
+                <PillButton onPress={() => router.setParams({ addName: '', addAmount: '' })}>
+                  Not now
+                </PillButton>
+              </View>
+            </Card>
+          ) : null}
+
           <View style={styles.topRow}>
             <MonthTicker months={months} value={month} onChange={setMonth} formatLabel={shortMonth} />
             <PillButton
@@ -198,12 +303,12 @@ export default function FlightPlanScreen() {
                 setMoveFrom(null);
                 setMoveTo(null);
               }}>
-              {moveMode ? 'Done moving' : 'Move fuel'}
+              {moveMode ? 'Done moving' : 'Move money'}
             </PillButton>
           </View>
 
           <ThemedText type="small" themeColor="textSecondary">
-            {formatMoney(monthlyIncome)} income · {formatMoney(totalCapacity)} fueled ·{' '}
+            {formatMoney(monthlyIncome)} income · {formatMoney(totalCapacity)} budgeted ·{' '}
             {formatMoney(Math.abs(savingsTarget))} {overCommitted ? 'over-committed' : 'toward goals'}
           </ThemedText>
 
@@ -211,13 +316,13 @@ export default function FlightPlanScreen() {
             <Card style={[styles.moveCard, { borderColor: theme.primary }]}>
               <ThemedText type="smallBold">
                 {!moveFrom
-                  ? 'Tap the tank to draw fuel from'
+                  ? 'Tap the category to take money from'
                   : !moveTo
-                    ? `From ${moveFrom} — now tap the tank to fill`
+                    ? `From ${moveFrom} — now tap the category to add to`
                     : `${moveFrom} → ${moveTo}`}
               </ThemedText>
               {moveFrom && moveTo ? (
-                <View style={styles.moveAmounts}>
+                <View style={styles.chips}>
                   {MOVE_AMOUNTS.map((amount) => (
                     <ToggleChip key={amount} label={`Move ${formatMoney(amount)}`} onPress={() => moveFuel(amount)} />
                   ))}
@@ -256,22 +361,48 @@ export default function FlightPlanScreen() {
                     <View style={styles.lineList}>
                       {section.lines.map((line) => (
                         <View key={line.id} style={[styles.lineRow, { borderTopColor: theme.border }]}>
-                          <View style={styles.lineCopy}>
-                            <ThemedText type="smallBold" numberOfLines={1}>
-                              {line.name}
-                            </ThemedText>
-                            <ThemedText type="small" themeColor="textSecondary">
-                              {line.type === 'fixed' ? 'Fixed' : 'Flexible'}
-                            </ThemedText>
+                          <View style={styles.lineTop}>
+                            <View style={styles.lineCopy}>
+                              <ThemedText type="smallBold" numberOfLines={1}>
+                                {line.name}
+                              </ThemedText>
+                              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                                {line.type === 'fixed' ? 'Fixed amount' : methodLabel(line.method)}
+                              </ThemedText>
+                            </View>
+                            {line.type === 'fixed' ? (
+                              <TextInput
+                                value={String(Math.round(line.amount))}
+                                keyboardType="numeric"
+                                onChangeText={(value) =>
+                                  updateLine(line.id, { amount: Number(value.replace(/[^0-9.]/g, '')) || 0 })
+                                }
+                                style={[styles.amountInput, { borderColor: theme.border, color: theme.text }]}
+                              />
+                            ) : (
+                              <ThemedText type="money">{formatMoney(line.amount)}</ThemedText>
+                            )}
                           </View>
-                          <TextInput
-                            value={String(Math.round(line.amount))}
-                            keyboardType="numeric"
-                            onChangeText={(value) =>
-                              updateLineAmount(line.id, Number(value.replace(/[^0-9.]/g, '')) || 0)
-                            }
-                            style={[styles.amountInput, { borderColor: theme.border, color: theme.text }]}
-                          />
+                          <View style={styles.lineControls}>
+                            <ToggleChip
+                              label="Fixed"
+                              selected={line.type === 'fixed'}
+                              onPress={() => updateLine(line.id, { type: 'fixed' })}
+                            />
+                            <ToggleChip
+                              label="Flexible"
+                              selected={line.type === 'flexible'}
+                              onPress={() => {
+                                updateLine(line.id, { type: 'flexible' });
+                                setMethodLineId(line.id);
+                              }}
+                            />
+                            {line.type === 'flexible' ? (
+                              <PillButton onPress={() => setMethodLineId(line.id)}>
+                                Change method
+                              </PillButton>
+                            ) : null}
+                          </View>
                         </View>
                       ))}
                     </View>
@@ -283,8 +414,8 @@ export default function FlightPlanScreen() {
 
           <SpeechBubble expression={overCommitted ? 'concerned' : 'default'}>
             {moveMode
-              ? 'Fuel moved here stays moved — the flight plan is yours to balance.'
-              : 'Tap a tank to see its lines. "Move fuel" shifts budget between tanks.'}
+              ? 'Moved amounts stay moved — the plan is yours to balance.'
+              : 'Tap a category to edit its lines. Fixed = you set the number; Flexible = Penny sets it from your history.'}
           </SpeechBubble>
         </ScrollView>
       ) : (
@@ -295,17 +426,17 @@ export default function FlightPlanScreen() {
           <Card style={[styles.destinationCard, { borderColor: theme.accent }]}>
             <View style={styles.destinationHead}>
               <View style={styles.destinationCopy}>
-                <ThemedText type="small" style={{ color: theme.accent }}>
+                <ThemedText type="small" style={{ color: theme.secondary }}>
                   DESTINATION
                 </ThemedText>
                 <ThemedText type="section">First home fund</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {Math.round(goal.progress * 100)}% of the way there · arrival ~{goal.targetDateLabel}
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
+                  {Math.round(goal.progress * 100)}% of the way there · arrival by {goal.targetDateLabel}
                 </ThemedText>
               </View>
               <Pill label={`${Math.round(goal.progress * 100)}%`} tone="info" />
             </View>
-            <ProgressBar value={goal.progress} color={theme.accent} />
+            <ProgressBar value={goal.progress} />
             <View style={styles.destinationStats}>
               <DestinationStat label="Saved" value={formatMoney(goal.currentSavings)} />
               <DestinationStat label="Cash needed" value={formatMoney(goal.cashNeeded)} />
@@ -313,34 +444,155 @@ export default function FlightPlanScreen() {
             </View>
           </Card>
 
-          <Card style={styles.gap}>
-            <View style={styles.paceHead}>
-              <ThemedText type="smallBold">Savings pace</ThemedText>
-              <Pill
-                label={onPace ? 'Ahead of plan' : 'Behind plan'}
-                tone={onPace ? 'good' : 'bad'}
-              />
+          <Card style={styles.projectionCard}>
+            <ThemedText type="smallBold">Savings projection</ThemedText>
+            <View style={styles.chips}>
+              {PACE_OPTIONS.map((option) => (
+                <ToggleChip
+                  key={String(option.value)}
+                  label={option.label}
+                  selected={pace === option.value}
+                  onPress={() => setPace(option.value)}
+                />
+              ))}
             </View>
-            <ThemedText type="small" themeColor="textSecondary">
-              Flying at {formatMoney(savings.pace)}/mo against a {formatMoney(savings.budgetedTarget)}/mo
-              plan (6-mo average {formatMoney(savings.avg6)}).
-            </ThemedText>
-            <TrendBars
-              data={savings.chart}
-              averageWindow={0}
-              height={132}
-              formatValue={(value) => formatMoney(value)}
+            <View style={styles.chips}>
+              {HORIZON_OPTIONS.map((option) => (
+                <ToggleChip
+                  key={option.value}
+                  label={option.label}
+                  selected={horizon === option.value}
+                  onPress={() => setHorizon(option.value)}
+                />
+              ))}
+            </View>
+            <LineChart
+              height={180}
+              series={[
+                {
+                  points: projection.points.map((point) => ({
+                    label: shortMonth(point.month),
+                    value: point.actual,
+                  })),
+                  color: chartPalette.steelBlue,
+                  area: true,
+                },
+                {
+                  points: projection.points.map((point) => ({
+                    label: shortMonth(point.month),
+                    value: point.budgeted,
+                  })),
+                  color: theme.textSecondary,
+                  dashed: true,
+                },
+              ]}
+              markers={projection.markerIndexes.map((pointIndex) => ({
+                seriesIndex: 0,
+                pointIndex,
+              }))}
+              legend={[
+                { label: 'Actual pace', color: chartPalette.steelBlue },
+                { label: 'Budgeted plan', color: theme.textSecondary, dashed: true },
+              ]}
             />
+            <ThemedText type="small" themeColor="textSecondary">
+              ● Planned expense draws the balance down · balances compound at{' '}
+              {(mobileSavingsConfig.savingsApy * 100).toFixed(1)}% APY · pace{' '}
+              {formatMoney(projection.actualPace)}/mo
+            </ThemedText>
           </Card>
 
-          <SpeechBubble expression={onPace ? 'onTrack' : 'thinking'}>
-            {onPace
-              ? 'Pace looks good — the destination is getting closer every month.'
-              : 'A small monthly boost would move the arrival date up. Worth a look at the fuel tanks.'}
+          <SpeechBubble
+            expression={projection.actualPace >= mobileSavingsConfig.monthlySavingsTarget ? 'onTrack' : 'thinking'}>
+            {projection.actualPace >= mobileSavingsConfig.monthlySavingsTarget
+              ? 'Actual pace is running ahead of the plan — the arrival date is safe.'
+              : 'Pace is a touch behind plan. Moving a little budget toward savings pulls the arrival date closer.'}
           </SpeechBubble>
         </ScrollView>
       )}
+
+      <MethodModal
+        key={methodLineId ?? 'closed'}
+        line={methodLine}
+        onClose={() => setMethodLineId(null)}
+        onPick={(method) => {
+          if (methodLine) updateLine(methodLine.id, { method });
+          setMethodLineId(null);
+        }}
+        preview={(method) => (methodLine ? forecastFor(methodLine, method) : 0)}
+      />
     </Screen>
+  );
+}
+
+/**
+ * The flexible-amount explainer: plain-language choice between n-month averages
+ * and EWMA (α 0.35 for now — a tunable candidate for paid tiers later).
+ */
+function MethodModal({
+  line,
+  onClose,
+  onPick,
+  preview,
+}: {
+  line: PlanLine | null;
+  onClose: () => void;
+  onPick: (method: ForecastMethod) => void;
+  preview: (method: ForecastMethod) => number;
+}) {
+  const theme = useTheme();
+  // The modal is keyed by line id, so initial state resets per line.
+  const [selected, setSelected] = useState<ForecastMethod>(line?.method ?? 'avg6');
+
+  return (
+    <Modal visible={line !== null} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View
+          style={[
+            styles.methodSheet,
+            { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
+          ]}>
+          <ThemedText type="section">How should Penny set “{line?.name}”?</ThemedText>
+
+          <View style={[styles.methodExplainer, { backgroundColor: theme.backgroundSelected }]}>
+            <ThemedText type="smallBold">N-month average</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Your typical spend over the last N months, weighted equally. Steady and predictable —
+              good for stable categories like groceries.
+            </ThemedText>
+          </View>
+          <View style={[styles.methodExplainer, { backgroundColor: theme.backgroundSelected }]}>
+            <ThemedText type="smallBold">EWMA (recent months count more)</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              An exponentially weighted average (α {EWMA_ALPHA}): last month matters most, older
+              months fade out. Reacts faster when your habits change.
+            </ThemedText>
+          </View>
+
+          <View style={styles.chips}>
+            {METHOD_OPTIONS.map((option) => (
+              <ToggleChip
+                key={option.value}
+                label={option.label}
+                selected={selected === option.value}
+                onPress={() => setSelected(option.value)}
+              />
+            ))}
+          </View>
+
+          <ThemedText type="small" themeColor="textSecondary">
+            {methodLabel(selected)} would budget {formatMoney(preview(selected))}/mo here.
+          </ThemedText>
+
+          <View style={styles.addActions}>
+            <PillButton tone="primary" onPress={() => onPick(selected)}>
+              Use {methodLabel(selected)}
+            </PillButton>
+            <PillButton onPress={onClose}>Cancel</PillButton>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -365,19 +617,24 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     paddingBottom: PANEL_BOTTOM_INSET,
   },
-  gap: {
-    gap: Spacing.two,
-  },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
+  addCard: {
+    gap: Spacing.two,
+  },
+  addActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
   moveCard: {
     gap: Spacing.two,
   },
-  moveAmounts: {
+  chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.two,
@@ -389,16 +646,25 @@ const styles = StyleSheet.create({
     gap: Spacing.one,
   },
   lineRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: Spacing.two,
     paddingTop: Spacing.two,
     borderTopWidth: 1,
+  },
+  lineTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
   },
   lineCopy: {
     flex: 1,
     minWidth: 0,
     gap: 1,
+  },
+  lineControls: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: Spacing.two,
   },
   amountInput: {
     width: 84,
@@ -432,10 +698,27 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 1,
   },
-  paceHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  projectionCard: {
     gap: Spacing.two,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(30, 24, 18, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.three,
+  },
+  methodSheet: {
+    width: '100%',
+    maxWidth: 520,
+    borderWidth: 1,
+    borderRadius: Radius.card + 6,
+    padding: Spacing.four,
+    gap: Spacing.three,
+  },
+  methodExplainer: {
+    borderRadius: Radius.control,
+    padding: Spacing.three,
+    gap: Spacing.one,
   },
 });

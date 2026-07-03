@@ -1,6 +1,6 @@
 # Penny Pilot
 
-Penny Pilot is a friendly personal finance app prototype built with Expo, styled as a calm "aviation at dusk" instrument panel (see `docs/design-system.md`). The app is 4 tabs + a center action: **Cockpit** (safe-to-spend + altitude gauge), **Radar** (transaction review + subscriptions), **Can I afford this?** (center button), **Flight Plan** (fuel-gauge envelopes + goal destinations), and **Logbook** (reports + net worth). Setup runs as Penny the Wizard before handing off to the pilot theme; settings live behind Penny's avatar. Includes mock service boundaries, mascot assets, and a Supabase schema draft.
+Penny Pilot is a friendly personal finance app prototype built with Expo, in a warm penny-copper palette with light and dark modes (see `docs/design-system.md`). The app is 4 tabs + a center action: **Overview** (safe-to-spend + month-pace gauge), **Transactions** (quizlet-style review + subscriptions), **Can I afford this?** (center button), **Plan** (budget envelopes + goal destinations), and **Logbook** (drillable reports + net worth). Setup runs as Penny the Wizard before handing off to the everyday app; settings live behind Penny's avatar. Includes mock service boundaries, mascot assets, and a Supabase schema draft.
 
 ## Get started
 

@@ -1,12 +1,10 @@
 /**
- * Penny Pilot design system — "aviation at dusk".
+ * Penny Pilot design system — warm copper, penny-colored.
  *
- * Deep navy is the primary surface; warm gold is Penny's color, the safe-to-spend
- * number, and every positive affordance. Sky-blue is informational. Over-budget and
- * warning states use muted coral — there is intentionally no bright red anywhere:
- * the audience avoids their finances out of stress, and color is the fastest way to
- * trigger or defuse that. Both color-scheme slots resolve to the dusk palette so the
- * app reads as one calm instrument panel regardless of OS setting.
+ * Light-first: warm ivory background, white cards, copper as the brand color for
+ * buttons, highlights, and the safe-to-spend number. Dark mode is a true warm-dark
+ * variant, not inverted navy. Overspending uses brick red sparingly — states stay
+ * factual and kind, never a red screen.
  */
 
 import '@/global.css';
@@ -15,49 +13,53 @@ import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#F2F6FB',
-    background: '#0F1B2D',
-    backgroundElement: '#16263C',
-    backgroundSelected: '#1F3350',
-    textSecondary: '#8FA3BD',
-    primary: '#F5B841',
-    accent: '#7FB6E8',
-    success: '#5FC49C',
-    warning: '#E8A06B',
-    danger: '#E4796B',
-    border: '#22354E',
-    borderStrong: '#2C425F',
-    surface: '#16263C',
-    // Deepest panel color, used for summary bars and the tab bar.
-    ink: '#0A1524',
-    // Text/icon color on top of gold (primary) fills.
-    onPrimary: '#13233B',
+    text: '#2E2E2E',
+    background: '#FAF7F2',
+    backgroundElement: '#FFFFFF',
+    backgroundSelected: '#F3E9DC',
+    textSecondary: '#6B6B6B',
+    primary: '#B87333',
+    primaryHover: '#A35F28',
+    accent: '#D58B45',
+    secondary: '#7A4A24',
+    success: '#2E7D32',
+    warning: '#D69E2E',
+    danger: '#C94C4C',
+    border: '#DDD5CA',
+    borderStrong: '#CBBFAF',
+    surface: '#FFFFFF',
+    // Dark summary panels (totals bar) — charcoal, matches primary text.
+    ink: '#2E2E2E',
+    // Text/icon color on top of copper (primary) fills.
+    onPrimary: '#FFFFFF',
   },
   dark: {
-    text: '#F2F6FB',
-    background: '#0F1B2D',
-    backgroundElement: '#16263C',
-    backgroundSelected: '#1F3350',
-    textSecondary: '#8FA3BD',
-    primary: '#F5B841',
-    accent: '#7FB6E8',
-    success: '#5FC49C',
-    warning: '#E8A06B',
-    danger: '#E4796B',
-    border: '#22354E',
-    borderStrong: '#2C425F',
-    surface: '#16263C',
-    ink: '#0A1524',
-    onPrimary: '#13233B',
+    text: '#F6F2EC',
+    background: '#161311',
+    backgroundElement: '#211C19',
+    backgroundSelected: '#2B241E',
+    textSecondary: '#B9AEA1',
+    primary: '#D18A45',
+    primaryHover: '#B87333',
+    accent: '#D58B45',
+    secondary: '#C89B6E',
+    success: '#5FA463',
+    warning: '#E0B14E',
+    danger: '#D96C6C',
+    border: '#352C24',
+    borderStrong: '#453A30',
+    surface: '#211C19',
+    ink: '#0F0D0B',
+    onPrimary: '#241A10',
   },
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 /**
- * Setup-wizard variant of the same palette: a brief violet/starfield cast so the
- * wizard→pilot swap feels like a costume change, not a different app. Gold stays —
- * it's Penny's color in both costumes.
+ * Setup-wizard variant: a brief violet/starfield cast so the wizard→pilot swap
+ * feels like a costume change, not a different app. Copper stays — it's Penny's
+ * color in both costumes.
  */
 export const WizardColors = {
   text: '#F4F0FF',
@@ -65,43 +67,55 @@ export const WizardColors = {
   backgroundElement: '#1E1840',
   backgroundSelected: '#2A2154',
   textSecondary: '#A79FCC',
-  primary: '#F5B841',
+  primary: '#D18A45',
+  primaryHover: '#B87333',
   accent: '#A78BFA',
-  success: '#5FC49C',
-  warning: '#E8A06B',
-  danger: '#E4796B',
+  secondary: '#C89B6E',
+  success: '#5FA463',
+  warning: '#E0B14E',
+  danger: '#D96C6C',
   border: '#312757',
   borderStrong: '#3D3169',
   surface: '#1E1840',
   ink: '#0D0A1D',
-  onPrimary: '#13233B',
+  onPrimary: '#241A10',
 } as const;
 
-// Distinct categorical palette for charts/legends, tuned to read on deep navy —
-// gold / sky / mint / coral / violet plus tints. No bright red.
+/** Chart palette — warm, distinct, and legible on both ivory and warm-dark. */
+export const chartPalette = {
+  copper: '#B87333',
+  gold: '#D4A24C',
+  olive: '#7A8F4E',
+  sage: '#9BB58A',
+  steelBlue: '#5D7C96',
+  teal: '#3F8A89',
+  plum: '#82658C',
+  brick: '#C06A52',
+} as const;
+
 export const categoryColors: Record<string, string> = {
-  Essentials: '#7FB6E8',
-  Food: '#F5B841',
-  Debt: '#E4796B',
-  'Daily Living': '#9AB0C9',
-  'Subscriptions & Fun': '#E8A06B',
-  Entertainment: '#E8A06B',
-  Health: '#5FC49C',
-  Home: '#A78BFA',
-  Giving: '#F0D49B',
-  Income: '#7FB6E8',
-  Uncategorized: '#7A8AA0',
+  Essentials: chartPalette.steelBlue,
+  Food: chartPalette.copper,
+  Debt: chartPalette.brick,
+  'Daily Living': chartPalette.sage,
+  'Subscriptions & Fun': chartPalette.gold,
+  Entertainment: chartPalette.gold,
+  Health: chartPalette.teal,
+  Home: chartPalette.plum,
+  Giving: chartPalette.olive,
+  Income: chartPalette.olive,
+  Uncategorized: '#A8A29E',
 };
 
 const categoryFallback = [
-  '#7FB6E8',
-  '#F5B841',
-  '#5FC49C',
-  '#E8A06B',
-  '#E4796B',
-  '#A78BFA',
-  '#9AB0C9',
-  '#F0D49B',
+  chartPalette.copper,
+  chartPalette.steelBlue,
+  chartPalette.gold,
+  chartPalette.teal,
+  chartPalette.sage,
+  chartPalette.plum,
+  chartPalette.brick,
+  chartPalette.olive,
 ];
 
 export function colorForCategory(category: string, index = 0): string {

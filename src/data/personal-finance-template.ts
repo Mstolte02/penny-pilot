@@ -148,6 +148,11 @@ function buildMobileTransactions(): MobileTransaction[] {
     out.push(makeIncome(ym, 15, 'Secondary paycheck', 3012, 2));
 
     out.push(makeExpense(ym, 1, 'Rent', 1498, 'Essentials', 'Rent', 'rent'));
+    // True subscriptions: steady amount, monthly cadence. Cloud storage intentionally
+    // has no matching budget line so the "not in current budget" flow has a real case.
+    out.push(makeExpense(ym, 3, 'Spotify', 11.99, 'Subscriptions & Fun', 'Streaming', 'spotify'));
+    out.push(makeExpense(ym, 5, 'Gym membership', 24, 'Subscriptions & Fun', 'Memberships', 'gym'));
+    out.push(makeExpense(ym, 9, 'Cloud storage', 2.99, 'Subscriptions & Fun', 'Software', 'cloud'));
     out.push(makeExpense(ym, 6, 'Grocery store', wiggle(560, 70), 'Food', 'Groceries', 'grocery'));
     out.push(makeExpense(ym, 12, 'Coffee & snacks', wiggle(72, 24, 1), 'Food', 'Snacks', 'snacks'));
     out.push(

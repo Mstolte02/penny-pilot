@@ -424,8 +424,15 @@ export function LineChart({
       <View style={styles.lineChartRow}>
         <View style={[styles.lineYAxis, { height: plotHeight }]}>
           {gridFractions.map((fraction) => (
-            <ThemedText key={fraction} type="small" themeColor="textSecondary" style={styles.lineYLabel}>
-              {formatValue(max - span * fraction)}
+            <ThemedText
+              key={fraction}
+              type="small"
+              themeColor="textSecondary"
+              numberOfLines={1}
+              style={styles.lineYLabel}>
+              {/* Axis labels stay compact ($25k) no matter how the tooltip formats — the
+                  44px gutter can't fit full amounts without wrapping. */}
+              {compactMoney(max - span * fraction)}
             </ThemedText>
           ))}
         </View>

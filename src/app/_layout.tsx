@@ -1,9 +1,9 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme } from 'react-native';
 
 import AppTabs from '@/components/app-tabs';
 import { Colors, Fonts } from '@/constants/theme';
+import { ThemePreferenceProvider, useThemePreference } from '@/hooks/theme-preference';
 
 function navigationTheme(scheme: 'light' | 'dark') {
   const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
@@ -30,13 +30,21 @@ function navigationTheme(scheme: 'light' | 'dark') {
   };
 }
 
-export default function TabLayout() {
-  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
+function ThemedNavigation() {
+  const { scheme } = useThemePreference();
 
   return (
     <ThemeProvider value={navigationTheme(scheme)}>
-      <StatusBar style="auto" />
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <AppTabs />
     </ThemeProvider>
+  );
+}
+
+export default function TabLayout() {
+  return (
+    <ThemePreferenceProvider>
+      <ThemedNavigation />
+    </ThemePreferenceProvider>
   );
 }

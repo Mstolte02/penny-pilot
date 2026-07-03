@@ -3,17 +3,25 @@ import { useEffect, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Card, PennyBadge, PillButton, SpeechBubble } from '@/components/penny-ui';
+import { Card, PennyBadge, PillButton, SpeechBubble, ToggleChip } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { env } from '@/config/env';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { notificationTemplates } from '@/constants/penny-voice';
 import type { UserProfile } from '@/domain/finance';
+import { useThemePreference, type ThemePreference } from '@/hooks/theme-preference';
 import { authService } from '@/services';
+
+const APPEARANCE_OPTIONS: { label: string; value: ThemePreference }[] = [
+  { label: 'System', value: 'system' },
+  { label: 'Light', value: 'light' },
+  { label: 'Dark', value: 'dark' },
+];
 
 export default function AccountScreen() {
   const router = useRouter();
+  const { preference, setPreference } = useThemePreference();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [status, setStatus] = useState<string>('Checking session...');
   const [busy, setBusy] = useState(false);
@@ -91,6 +99,23 @@ export default function AccountScreen() {
           <SpeechBubble expression="default">
             You found the gear. What do you need, captain?
           </SpeechBubble>
+
+          <Card>
+            <ThemedText type="smallBold">Appearance</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Follow your device, or pin light or dark.
+            </ThemedText>
+            <View style={styles.actions}>
+              {APPEARANCE_OPTIONS.map((option) => (
+                <ToggleChip
+                  key={option.value}
+                  label={option.label}
+                  selected={preference === option.value}
+                  onPress={() => setPreference(option.value)}
+                />
+              ))}
+            </View>
+          </Card>
 
           <Card>
             <ThemedText type="smallBold">{user ? 'Signed in' : 'No active session'}</ThemedText>

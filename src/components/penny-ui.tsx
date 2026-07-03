@@ -135,8 +135,9 @@ export function Screen({
   );
 }
 
-/** Bottom padding to clear the native tab bar for scrolling panel bodies. */
-export const PANEL_BOTTOM_INSET = BottomTabInset + Spacing.four;
+/** Bottom padding to clear the floating tab bar for scrolling panel bodies —
+ *  generous enough that the last card (usually Penny's bubble) sits fully clear. */
+export const PANEL_BOTTOM_INSET = BottomTabInset + Spacing.five;
 
 /** One-line label/value row: the label truncates, the value never wraps. */
 export function StatRow({
@@ -285,7 +286,13 @@ export function PageHead({ eyebrow, title, subtitle, action, mascot }: PageHeadP
             {eyebrow}
           </ThemedText>
         ) : null}
-        <ThemedText style={styles.pageHeadTitle}>{title}</ThemedText>
+        <ThemedText
+          style={styles.pageHeadTitle}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}>
+          {title}
+        </ThemedText>
         {subtitle ? (
           <ThemedText type="small" themeColor="textSecondary">
             {subtitle}
@@ -307,6 +314,7 @@ export function Stat({
   delta,
   trend = 'flat',
   centered,
+  valueSize,
   style,
 }: {
   label: string;
@@ -314,6 +322,9 @@ export function Stat({
   delta?: string;
   trend?: StatTrend;
   centered?: boolean;
+  /** Fixed value font size — use across a row of tiles so numbers match instead of
+   *  each tile auto-shrinking independently. */
+  valueSize?: number;
   style?: ViewStyle;
 }) {
   const theme = useTheme();
@@ -327,9 +338,12 @@ export function Stat({
         {label}
       </ThemedText>
       <ThemedText
-        style={styles.statValue}
+        style={[
+          styles.statValue,
+          valueSize ? { fontSize: valueSize, lineHeight: valueSize + 4 } : null,
+        ]}
         numberOfLines={1}
-        adjustsFontSizeToFit
+        adjustsFontSizeToFit={!valueSize}
         minimumFontScale={0.5}>
         {value}
       </ThemedText>

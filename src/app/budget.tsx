@@ -1114,7 +1114,7 @@ function DestinationStat({ label, value }: { label: string; value: string }) {
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
         {label}
       </ThemedText>
-      <ThemedText type="money" numberOfLines={1}>
+      <ThemedText type="money" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
         {value}
       </ThemedText>
     </View>

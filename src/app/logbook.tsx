@@ -168,6 +168,16 @@ export default function LogbookScreen() {
   const educationFinal = education[education.length - 1]?.value ?? 0;
   const netUp = report.netM >= 0;
 
+  // Full amounts, never abbreviated: size the row off its longest value so all
+  // three tiles match and nothing clips.
+  const kpiValues = [
+    formatMoney(report.incomeM),
+    formatMoney(report.spendM),
+    formatMoney(report.netM),
+  ];
+  const kpiLongest = Math.max(...kpiValues.map((value) => value.length));
+  const kpiSize = kpiLongest <= 6 ? 20 : kpiLongest <= 8 ? 17 : 15;
+
   return (
     <Screen
       eyebrow="Logbook"
@@ -189,24 +199,24 @@ export default function LogbookScreen() {
           <View style={styles.kpiRow}>
             <Stat
               label="In"
-              value={formatMoney(report.incomeM)}
+              value={kpiValues[0]}
               centered
-              valueSize={20}
+              valueSize={kpiSize}
               style={styles.kpiTile}
             />
             <Stat
               label="Out"
-              value={formatMoney(report.spendM)}
+              value={kpiValues[1]}
               centered
-              valueSize={20}
+              valueSize={kpiSize}
               style={styles.kpiTile}
             />
             <Stat
               label="Net"
-              value={formatMoney(report.netM)}
+              value={kpiValues[2]}
               trend={netUp ? 'up' : 'down'}
               centered
-              valueSize={20}
+              valueSize={kpiSize}
               style={styles.kpiTile}
             />
           </View>

@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, View } from 'react-native';
@@ -8,7 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { env } from '@/config/env';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { notificationTemplates } from '@/constants/penny-voice';
+import { NOTIFICATION_PREFS_KEY, notificationTemplates } from '@/constants/penny-voice';
 import type { UserProfile } from '@/domain/finance';
 import { useThemePreference, type ThemePreference } from '@/hooks/theme-preference';
 import { authService } from '@/services';
@@ -19,12 +20,76 @@ const APPEARANCE_OPTIONS: { label: string; value: ThemePreference }[] = [
   { label: 'Dark', value: 'dark' },
 ];
 
+type NotificationKey =
+  | 'morningBriefing'
+  | 'billHeadsUp'
+  | 'turbulence'
+  | 'weeklyReport'
+  | 'goalMilestones';
+
+const NOTIFICATION_OPTIONS: { key: NotificationKey; label: string; description: string }[] = [
+  {
+    key: 'morningBriefing',
+    label: 'Morning briefing',
+    description: '8am, one line — your safe-to-spend for the day.',
+  },
+  {
+    key: 'billHeadsUp',
+    label: 'Bill heads-up',
+    description: 'A nudge the day before each bill hits.',
+  },
+  {
+    key: 'turbulence',
+    label: 'Pace alerts',
+    description: 'When a category runs ahead of plan mid-month.',
+  },
+  {
+    key: 'weeklyReport',
+    label: 'Weekly recap',
+    description: 'Sunday summary of the week, linked to the Logbook.',
+  },
+  {
+    key: 'goalMilestones',
+    label: 'Goal milestones',
+    description: 'A small celebration when a goal crosses a marker.',
+  },
+];
+
+const NOTIFICATION_DEFAULTS: Record<NotificationKey, boolean> = {
+  morningBriefing: true,
+  billHeadsUp: true,
+  turbulence: false,
+  weeklyReport: true,
+  goalMilestones: true,
+};
+
 export default function AccountScreen() {
   const router = useRouter();
   const { preference, setPreference } = useThemePreference();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [status, setStatus] = useState<string>('Checking session...');
   const [busy, setBusy] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] =
+    useState<Record<NotificationKey, boolean>>(NOTIFICATION_DEFAULTS);
+
+  useEffect(() => {
+    AsyncStorage.getItem(NOTIFICATION_PREFS_KEY)
+      .then((value) => {
+        if (!value) return;
+        try {
+          setNotificationPrefs({ ...NOTIFICATION_DEFAULTS, ...JSON.parse(value) });
+        } catch {}
+      })
+      .catch(() => {});
+  }, []);
+
+  const toggleNotification = (key: NotificationKey) => {
+    setNotificationPrefs((current) => {
+      const next = { ...current, [key]: !current[key] };
+      AsyncStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -135,16 +200,28 @@ export default function AccountScreen() {
           </Card>
 
           <Card>
-            <ThemedText type="smallBold">Morning briefing</ThemedText>
+            <ThemedText type="smallBold">Notifications</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              One gold-on-navy line at 8am, factual and kind — never a shame notification. Example:
+              Factual and kind, never a shame notification. Pick what Penny is allowed to send:
             </ThemedText>
-            <ThemedText type="small" themeColor="primary">
-              “{notificationTemplates.morningBriefing('$34')}”
-            </ThemedText>
+            {NOTIFICATION_OPTIONS.map((option) => (
+              <View key={option.key} style={styles.notifRow}>
+                <View style={styles.notifCopy}>
+                  <ThemedText type="smallBold">{option.label}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {option.description}
+                  </ThemedText>
+                </View>
+                <ToggleChip
+                  label={notificationPrefs[option.key] ? 'On' : 'Off'}
+                  selected={notificationPrefs[option.key]}
+                  onPress={() => toggleNotification(option.key)}
+                />
+              </View>
+            ))}
             <ThemedText type="small" themeColor="textSecondary">
-              Push delivery is wired up once notifications land; the copy already lives in the
-              design system.
+              Example briefing: “{notificationTemplates.morningBriefing('$34')}” — choices are
+              saved now; delivery arrives with push support.
             </ThemedText>
           </Card>
 
@@ -206,5 +283,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.two,
+  },
+  notifRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  notifCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
   },
 });

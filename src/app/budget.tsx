@@ -1,5 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { LineChart } from '@/components/mini-charts';
@@ -17,7 +18,9 @@ import {
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { chartPalette, colorForCategory, Radius, Spacing } from '@/constants/theme';
+import { BUDGET_STYLE_KEY } from '@/constants/penny-voice';
 import { mobileBudgetPlan, mobileSavingsConfig, mobileTransactions } from '@/data/personal-finance-template';
+import type { BudgetStyle } from '@/domain/finance';
 import {
   avgForecast,
   ewmaForecast,
@@ -54,6 +57,45 @@ const HORIZON_OPTIONS = [
   { label: '2 years', value: 24 },
   { label: '3 years', value: 36 },
 ];
+
+const BUDGET_STYLE_OPTIONS: { label: string; value: BudgetStyle; explainer: string }[] = [
+  {
+    label: 'Guided flexible',
+    value: 'guided-flexible',
+    explainer:
+      'Penny keeps flexible lines tuned to your history; fixed bills stay put. The easiest default.',
+  },
+  {
+    label: '50/30/20',
+    value: 'fifty-thirty-twenty',
+    explainer:
+      '50% of income to needs, 30% to wants, 20% to savings — Penny grades your plan against those targets below.',
+  },
+  {
+    label: 'Zero-based',
+    value: 'zero-based',
+    explainer:
+      'Every dollar gets a job before the month starts: income minus assignments should land on exactly zero.',
+  },
+  {
+    label: 'Envelopes',
+    value: 'envelopes',
+    explainer:
+      'Each category gauge is an envelope of cash. When it runs empty, spending there pauses — or you consciously move money in.',
+  },
+];
+
+// Section-level classification for the 50/30/20 grade. User-created categories
+// default to "wants" — the conservative read.
+const NEEDS_SECTIONS = new Set([
+  'Essentials',
+  'Debt',
+  'Health',
+  'Home',
+  'Insurance',
+  'Transportation',
+  'Kids & Family',
+]);
 
 type PlanLine = {
   id: string;
@@ -195,6 +237,11 @@ export default function PlanScreen() {
   const [pendingMoveAmount, setPendingMoveAmount] = useState<number | null>(null);
   const [methodLineId, setMethodLineId] = useState<string | null>(null);
   const [addSection, setAddSection] = useState('Subscriptions & Fun');
+  const [budgetStyle, setBudgetStyle] = useState<BudgetStyle>('guided-flexible');
+  const [categoryEditor, setCategoryEditor] = useState<
+    { mode: 'add' } | { mode: 'edit'; original: string } | null
+  >(null);
+  const [categoryName, setCategoryName] = useState('');
   const [horizon, setHorizon] = useState(24);
   const [goals, setGoals] = useState<GoalPlan[]>(() => {
     const home = homeGoalForecast({ transactions: mobileTransactions, savings: mobileSavingsConfig });
@@ -230,6 +277,28 @@ export default function PlanScreen() {
   const months = useMemo(() => uniqueMonths(mobileTransactions), []);
   const [month, setMonth] = useState(() => months[months.length - 1] ?? '');
 
+  // The style chosen in the setup wizard shapes this screen; changing it here
+  // persists right back to the same place.
+  useEffect(() => {
+    AsyncStorage.getItem(BUDGET_STYLE_KEY)
+      .then((value) => {
+        if (
+          value === 'guided-flexible' ||
+          value === 'fifty-thirty-twenty' ||
+          value === 'zero-based' ||
+          value === 'envelopes'
+        ) {
+          setBudgetStyle(value);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const chooseBudgetStyle = (style: BudgetStyle) => {
+    setBudgetStyle(style);
+    AsyncStorage.setItem(BUDGET_STYLE_KEY, style).catch(() => {});
+  };
+
   const sections = useMemo(() => {
     const byTitle = new Map<string, { title: string; lines: PlanLine[]; capacity: number; spent: number }>();
     for (const line of lines) {
@@ -253,6 +322,11 @@ export default function PlanScreen() {
   const savingsTarget = monthlyIncome - totalCapacity;
   const overCommitted = savingsTarget < 0;
   const methodLine = lines.find((line) => line.id === methodLineId) ?? null;
+  const needsTotal = sections
+    .filter((section) => NEEDS_SECTIONS.has(section.title))
+    .reduce((sum, section) => sum + section.capacity, 0);
+  const wantsTotal = totalCapacity - needsTotal;
+  const activeStyle = BUDGET_STYLE_OPTIONS.find((option) => option.value === budgetStyle);
 
   const pendingAdd =
     params.addName && params.addAmount
@@ -291,6 +365,79 @@ export default function PlanScreen() {
         return next;
       })
     );
+
+  const renameLine = (id: string, name: string) =>
+    setLines((current) => current.map((line) => (line.id === id ? { ...line, name } : line)));
+
+  const deleteLine = (id: string) =>
+    setLines((current) => current.filter((line) => line.id !== id));
+
+  const addLineToSection = (section: string) =>
+    setLines((current) => [
+      ...current,
+      {
+        id: `${section}::line-${Date.now()}`,
+        section,
+        name: 'New item',
+        type: 'fixed',
+        amount: 0,
+        method: 'avg6',
+      },
+    ]);
+
+  const openCategoryEditor = (original?: string) => {
+    setCategoryEditor(original ? { mode: 'edit', original } : { mode: 'add' });
+    setCategoryName(original ?? '');
+  };
+
+  const saveCategoryEditor = () => {
+    if (!categoryEditor) return;
+    const name = categoryName.trim();
+    if (!name) return;
+
+    if (categoryEditor.mode === 'add') {
+      const exists = lines.some((line) => line.section.toLowerCase() === name.toLowerCase());
+      if (!exists) {
+        setLines((current) => [
+          ...current,
+          {
+            id: `${name}::line-${Date.now()}`,
+            section: name,
+            name: 'New item',
+            type: 'fixed',
+            amount: 0,
+            method: 'avg6',
+          },
+        ]);
+      }
+      setOpenSection(name);
+    } else {
+      const { original } = categoryEditor;
+      setLines((current) =>
+        current.map((line) => (line.section === original ? { ...line, section: name } : line))
+      );
+      setAdjustments((current) => {
+        if (!(original in current)) return current;
+        const { [original]: moved, ...rest } = current;
+        return { ...rest, [name]: (rest[name] ?? 0) + moved };
+      });
+      setOpenSection((current) => (current === original ? name : current));
+    }
+    setCategoryEditor(null);
+  };
+
+  const deleteCategory = () => {
+    if (!categoryEditor || categoryEditor.mode !== 'edit') return;
+    const { original } = categoryEditor;
+    setLines((current) => current.filter((line) => line.section !== original));
+    setAdjustments((current) => {
+      const { [original]: removed, ...rest } = current;
+      void removed;
+      return rest;
+    });
+    setOpenSection((current) => (current === original ? null : current));
+    setCategoryEditor(null);
+  };
 
   const addPendingToPlan = () => {
     if (!pendingAdd) return;
@@ -503,6 +650,43 @@ export default function PlanScreen() {
             {formatMoney(Math.abs(savingsTarget))} {overCommitted ? 'over-committed' : 'toward goals'}
           </ThemedText>
 
+          <Card style={styles.styleCard}>
+            <ThemedText type="smallBold">Budget style</ThemedText>
+            <View style={styles.chips}>
+              {BUDGET_STYLE_OPTIONS.map((option) => (
+                <ToggleChip
+                  key={option.value}
+                  label={option.label}
+                  selected={budgetStyle === option.value}
+                  onPress={() => chooseBudgetStyle(option.value)}
+                />
+              ))}
+            </View>
+            <ThemedText type="small" themeColor="textSecondary">
+              {activeStyle?.explainer}
+            </ThemedText>
+            {budgetStyle === 'fifty-thirty-twenty' ? (
+              <View style={styles.ruleRows}>
+                <RuleRow label="Needs" actual={needsTotal} target={monthlyIncome * 0.5} />
+                <RuleRow label="Wants" actual={wantsTotal} target={monthlyIncome * 0.3} />
+                <RuleRow
+                  label="Savings"
+                  actual={Math.max(0, savingsTarget)}
+                  target={monthlyIncome * 0.2}
+                />
+              </View>
+            ) : null}
+            {budgetStyle === 'zero-based' ? (
+              <ThemedText
+                type="small"
+                style={{ color: overCommitted ? theme.danger : theme.success }}>
+                {overCommitted
+                  ? `Assignments exceed income by ${formatMoney(Math.abs(savingsTarget))} — trim a category to get back to zero.`
+                  : `${formatMoney(monthlyIncome)} income − ${formatMoney(totalCapacity)} assigned − ${formatMoney(Math.max(0, savingsTarget))} to goals = $0 · every dollar has a job ✓`}
+              </ThemedText>
+            ) : null}
+          </Card>
+
           {moveMode ? (
             <Card style={[styles.moveCard, { borderColor: theme.primary }]}>
               <ThemedText type="smallBold">
@@ -577,9 +761,14 @@ export default function PlanScreen() {
                         <View key={line.id} style={[styles.lineRow, { borderTopColor: theme.border }]}>
                           <View style={styles.lineTop}>
                             <View style={styles.lineCopy}>
-                              <ThemedText type="smallBold" numberOfLines={1}>
-                                {line.name}
-                              </ThemedText>
+                              <TextInput
+                                value={line.name}
+                                onChangeText={(value) => renameLine(line.id, value)}
+                                style={[
+                                  styles.lineNameInput,
+                                  { borderColor: theme.border, color: theme.text },
+                                ]}
+                              />
                               <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
                                 {line.type === 'fixed' ? 'Fixed amount' : methodLabel(line.method)}
                               </ThemedText>
@@ -596,6 +785,15 @@ export default function PlanScreen() {
                             ) : (
                               <ThemedText type="money">{formatMoney(line.amount)}</ThemedText>
                             )}
+                            <Pressable
+                              accessibilityLabel={`Delete ${line.name}`}
+                              hitSlop={8}
+                              onPress={() => deleteLine(line.id)}
+                              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+                              <ThemedText type="smallBold" style={{ color: theme.danger }}>
+                                ✕
+                              </ThemedText>
+                            </Pressable>
                           </View>
                           <View style={styles.lineControls}>
                             <ToggleChip
@@ -619,6 +817,14 @@ export default function PlanScreen() {
                           </View>
                         </View>
                       ))}
+                      <View style={styles.sectionActions}>
+                        <PillButton onPress={() => addLineToSection(section.title)}>
+                          + Add subcategory
+                        </PillButton>
+                        <PillButton onPress={() => openCategoryEditor(section.title)}>
+                          Edit category
+                        </PillButton>
+                      </View>
                     </View>
                   ) : null}
                 </Card>
@@ -626,10 +832,14 @@ export default function PlanScreen() {
             );
           })}
 
+          <PillButton tone="primary" onPress={() => openCategoryEditor()}>
+            + Add category
+          </PillButton>
+
           <SpeechBubble expression={overCommitted ? 'concerned' : 'default'}>
             {moveMode
               ? 'Moved amounts stay moved — the plan is yours to balance.'
-              : 'Tap a category to edit its lines. Fixed = you set the number; Flexible = Penny sets it from your history.'}
+              : 'Tap a category to edit, rename, or delete its lines — the categories are yours, not Penny’s.'}
           </SpeechBubble>
         </ScrollView>
       ) : (
@@ -641,7 +851,7 @@ export default function PlanScreen() {
             <View style={styles.destinationHead}>
               <View style={styles.destinationCopy}>
                 <ThemedText type="small" style={{ color: theme.secondary }}>
-                  DESTINATION
+                  GOAL · YOUR DESTINATION
                 </ThemedText>
                 <ThemedText type="section">{selectedGoal?.name ?? 'Goal'}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
@@ -830,7 +1040,68 @@ export default function PlanScreen() {
         onClose={() => setExpenseEditor(null)}
         onSave={saveExpenseEditor}
       />
+      <Modal
+        visible={categoryEditor !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCategoryEditor(null)}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.methodSheet,
+              { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
+            ]}>
+            <ThemedText type="section">
+              {categoryEditor?.mode === 'edit' ? 'Edit category' : 'Add category'}
+            </ThemedText>
+            <BudgetEditorField
+              label="Category name"
+              value={categoryName}
+              onChangeText={setCategoryName}
+              placeholder="e.g. Pets"
+            />
+            {categoryEditor?.mode === 'edit' ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                Renaming keeps every line and adjustment. Deleting removes the category and all of
+                its lines from the plan.
+              </ThemedText>
+            ) : null}
+            <View style={styles.addActions}>
+              <PillButton tone="primary" onPress={saveCategoryEditor}>
+                {categoryEditor?.mode === 'edit' ? 'Save name' : 'Create category'}
+              </PillButton>
+              {categoryEditor?.mode === 'edit' ? (
+                <PillButton onPress={deleteCategory}>Delete category</PillButton>
+              ) : null}
+              <PillButton onPress={() => setCategoryEditor(null)}>Cancel</PillButton>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
+  );
+}
+
+/** One 50/30/20 grade row: plan allocation vs the rule's target share of income. */
+function RuleRow({ label, actual, target }: { label: string; actual: number; target: number }) {
+  const theme = useTheme();
+  const over = actual > target;
+
+  return (
+    <View style={styles.ruleRow}>
+      <ThemedText type="small" style={styles.ruleLabel} numberOfLines={1}>
+        {label}
+      </ThemedText>
+      <View style={styles.ruleBar}>
+        <ProgressBar
+          value={target > 0 ? actual / target : 0}
+          color={over ? theme.warning : theme.success}
+        />
+      </View>
+      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+        {formatMoney(actual)} / {formatMoney(target)}
+      </ThemedText>
+    </View>
   );
 }
 
@@ -1167,6 +1438,38 @@ const styles = StyleSheet.create({
   },
   gaugeCard: {
     gap: Spacing.two,
+  },
+  styleCard: {
+    gap: Spacing.two,
+  },
+  ruleRows: {
+    gap: Spacing.one,
+  },
+  ruleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  ruleLabel: {
+    width: 56,
+  },
+  ruleBar: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sectionActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+    paddingTop: Spacing.two,
+  },
+  lineNameInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 3,
+    fontSize: 14,
+    fontWeight: '700',
   },
   lineList: {
     gap: Spacing.one,

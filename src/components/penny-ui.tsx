@@ -343,7 +343,7 @@ export function Stat({
           valueSize ? { fontSize: valueSize, lineHeight: valueSize + 4 } : null,
         ]}
         numberOfLines={1}
-        adjustsFontSizeToFit={!valueSize}
+        adjustsFontSizeToFit
         minimumFontScale={0.5}>
         {value}
       </ThemedText>

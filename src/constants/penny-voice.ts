@@ -8,6 +8,8 @@
  */
 
 export const SETUP_COMPLETE_KEY = 'penny:setupComplete';
+export const BUDGET_STYLE_KEY = 'penny:budgetStyle';
+export const NOTIFICATION_PREFS_KEY = 'penny:notificationPrefs';
 
 /** Verdicts for the "Can I afford this?" forecast. */
 export const affordVerdicts = {
@@ -42,6 +44,8 @@ export const notificationTemplates = {
   billHeadsUp: (name: string, amount: string) => `Heads up — ${name} (${amount}) hits tomorrow.`,
   turbulence: (category: string) =>
     `${category} is running ahead of plan this month. A quiet week levels it out.`,
+  weeklyReport: (net: string) => `Weekly recap: ${net} net this week. Full report in the Logbook.`,
+  goalMilestone: (goal: string, pct: number) => `${goal} just crossed ${pct}% — worth a little celebration.`,
 } as const;
 
 /** The wizard's script — each setup step is a spell. */

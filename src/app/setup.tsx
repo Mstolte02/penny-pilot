@@ -1,25 +1,77 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Animated, Easing, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card, PennyBadge, PillButton, StepDots, ToggleChip } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Radius, Spacing, WizardColors } from '@/constants/theme';
-import { SETUP_COMPLETE_KEY, wizardScript } from '@/constants/penny-voice';
-import { categories } from '@/data/sample-finance';
+import { BUDGET_STYLE_KEY, SETUP_COMPLETE_KEY, wizardScript } from '@/constants/penny-voice';
 import { mobileBudgetPlan } from '@/data/personal-finance-template';
 import type { BudgetStyle, GoalKind, SetupPreferences } from '@/domain/finance';
 import { formatMoney } from '@/domain/mobile-finance';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { authService, financeDataService } from '@/services';
 
-const budgetStyles: { label: string; value: BudgetStyle }[] = [
-  { label: 'Guided flexible', value: 'guided-flexible' },
-  { label: '50/30/20', value: 'fifty-thirty-twenty' },
-  { label: 'Zero-based', value: 'zero-based' },
-  { label: 'Category envelopes', value: 'envelopes' },
+const budgetStyles: { label: string; value: BudgetStyle; explainer: string }[] = [
+  {
+    label: 'Guided flexible',
+    value: 'guided-flexible',
+    explainer:
+      'Penny suggests amounts from your history — fixed bills stay fixed, everything else flexes with real spending. The easiest default.',
+  },
+  {
+    label: '50/30/20',
+    value: 'fifty-thirty-twenty',
+    explainer:
+      'A rule of thumb: 50% of income to needs, 30% to wants, 20% to savings. Penny grades your plan against those targets each month.',
+  },
+  {
+    label: 'Zero-based',
+    value: 'zero-based',
+    explainer:
+      'Every dollar gets a job before the month starts — income minus assignments should land on exactly zero. Maximum control, a little more upkeep.',
+  },
+  {
+    label: 'Category envelopes',
+    value: 'envelopes',
+    explainer:
+      'Each category is an envelope of cash. When an envelope runs empty, spending there pauses (or you consciously move money from another envelope).',
+  },
+];
+
+// A broad starter set — everything stays editable here and on the Plan tab later.
+const starterCategories = [
+  'Essentials',
+  'Food',
+  'Transportation',
+  'Health',
+  'Daily Living',
+  'Subscriptions & Fun',
+  'Entertainment',
+  'Debt',
+  'Home',
+  'Travel',
+  'Pets',
+  'Kids & Family',
+  'Gifts & Holidays',
+  'Education',
+  'Personal Care',
+  'Insurance',
+  'Giving',
+  'Investing',
+  'Work',
+  'Miscellaneous',
 ];
 const goalTemplates: { label: string; value: GoalKind }[] = [
   { label: 'Home', value: 'home' },
@@ -90,9 +142,10 @@ export default function SetupScreen() {
   const [step, setStep] = useState(0);
   const [rerun, setRerun] = useState(false);
   const [budgetStyle, setBudgetStyle] = useState<BudgetStyle>('guided-flexible');
-  const [selectedCategories, setSelectedCategories] = useState(
-    categories.map((category) => category.name)
-  );
+  const [styleInfo, setStyleInfo] = useState<BudgetStyle | null>(null);
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [customCategoryText, setCustomCategoryText] = useState('');
+  const [selectedCategories, setSelectedCategories] = useState(() => starterCategories.slice(0, 9));
   const [selectedGoals, setSelectedGoals] = useState<GoalKind[]>(['home', 'emergency-fund']);
   const [syncIntent, setSyncIntent] = useState<'now' | 'later'>('later');
   const [saving, setSaving] = useState(false);
@@ -112,6 +165,19 @@ export default function SetupScreen() {
     setSelectedCategories((current) =>
       current.includes(name) ? current.filter((item) => item !== name) : [...current, name]
     );
+
+  const addCustomCategory = () => {
+    const name = customCategoryText.trim();
+    if (!name) return;
+    const exists = [...starterCategories, ...customCategories].some(
+      (item) => item.toLowerCase() === name.toLowerCase()
+    );
+    if (!exists) {
+      setCustomCategories((current) => [...current, name]);
+    }
+    setSelectedCategories((current) => (current.includes(name) ? current : [...current, name]));
+    setCustomCategoryText('');
+  };
 
   const toggleGoal = (name: GoalKind) =>
     setSelectedGoals((current) =>
@@ -144,6 +210,8 @@ export default function SetupScreen() {
 
     try {
       await AsyncStorage.setItem(SETUP_COMPLETE_KEY, new Date().toISOString());
+      // The Plan tab reads this to shape the budget around the chosen style.
+      await AsyncStorage.setItem(BUDGET_STYLE_KEY, budgetStyle);
     } catch {}
 
     setSaving(false);
@@ -244,18 +312,42 @@ export default function SetupScreen() {
                 </ThemedText>
                 <ThemedText style={{ color: WizardColors.textSecondary }}>
                   Penny waves the wand over the imported pile and sorts it into these. Keep the
-                  ones that fit your life — everything stays editable later.
+                  ones that fit your life, add your own — everything stays editable on the Plan
+                  tab later.
                 </ThemedText>
                 <View style={styles.chips}>
-                  {categories.map((category) => (
+                  {[...starterCategories, ...customCategories].map((name) => (
                     <ToggleChip
-                      key={category.name}
-                      label={category.name}
-                      selected={selectedCategories.includes(category.name)}
-                      onPress={() => toggleCategory(category.name)}
+                      key={name}
+                      label={name}
+                      selected={selectedCategories.includes(name)}
+                      onPress={() => toggleCategory(name)}
                     />
                   ))}
                 </View>
+                <View style={styles.customRow}>
+                  <TextInput
+                    value={customCategoryText}
+                    onChangeText={setCustomCategoryText}
+                    placeholder="Add your own (e.g. Golf, Side hustle)"
+                    placeholderTextColor={WizardColors.textSecondary}
+                    onSubmitEditing={addCustomCategory}
+                    style={[
+                      styles.customInput,
+                      {
+                        borderColor: WizardColors.border,
+                        color: WizardColors.text,
+                        backgroundColor: WizardColors.background,
+                      },
+                    ]}
+                  />
+                  <PillButton tone="primary" onPress={addCustomCategory}>
+                    Add
+                  </PillButton>
+                </View>
+                <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>
+                  {selectedCategories.length} categories selected.
+                </ThemedText>
               </View>
             )}
 
@@ -287,7 +379,8 @@ export default function SetupScreen() {
                   ))}
                 </View>
                 <ThemedText type="smallBold" style={{ color: WizardColors.primary }}>
-                  {formatMoney(enchantmentBurn)}/mo of enchantments, all watched on the Radar tab.
+                  {formatMoney(enchantmentBurn)}/mo of enchantments — tracked on the Subscriptions
+                  page of the Transactions tab.
                 </ThemedText>
               </View>
             )}
@@ -301,18 +394,37 @@ export default function SetupScreen() {
                   A starting budget style and the destinations worth flying toward. Penny suggests;
                   you have final say.
                 </ThemedText>
-                <View style={styles.chips}>
+                <View style={styles.styleList}>
                   {budgetStyles.map((style) => (
-                    <ToggleChip
-                      key={style.value}
-                      label={style.label}
-                      selected={budgetStyle === style.value}
-                      onPress={() => setBudgetStyle(style.value)}
-                    />
+                    <View key={style.value}>
+                      <View style={styles.styleRow}>
+                        <ToggleChip
+                          label={style.label}
+                          selected={budgetStyle === style.value}
+                          onPress={() => setBudgetStyle(style.value)}
+                        />
+                        <Pressable
+                          accessibilityLabel={`About ${style.label}`}
+                          hitSlop={8}
+                          onPress={() =>
+                            setStyleInfo((current) => (current === style.value ? null : style.value))
+                          }
+                          style={[styles.infoDot, { borderColor: WizardColors.accent }]}>
+                          <ThemedText type="small" style={{ color: WizardColors.accent }}>
+                            i
+                          </ThemedText>
+                        </Pressable>
+                      </View>
+                      {styleInfo === style.value ? (
+                        <ThemedText type="small" style={[styles.styleExplainer, { color: WizardColors.textSecondary }]}>
+                          {style.explainer}
+                        </ThemedText>
+                      ) : null}
+                    </View>
                   ))}
                 </View>
                 <ThemedText type="smallBold" style={{ color: WizardColors.text }}>
-                  Destinations
+                  Destinations (your goals)
                 </ThemedText>
                 <View style={styles.chips}>
                   {goalTemplates.map((goal) => (
@@ -463,6 +575,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.two,
+  },
+  customRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  customInput: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderRadius: Radius.control,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    fontSize: 15,
+  },
+  styleList: {
+    gap: Spacing.two,
+  },
+  styleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  infoDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  styleExplainer: {
+    paddingTop: Spacing.one,
+    paddingLeft: Spacing.two,
   },
   enchantList: {
     gap: Spacing.two,

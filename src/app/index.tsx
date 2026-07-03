@@ -164,14 +164,10 @@ export default function OverviewScreen() {
             label={`${formatMoney(Math.max(0, safe.flexBudget - safe.flexSpent))} left`}
             spent={safe.flexSpent}
             capacity={safe.flexBudget}
-            detail={`${formatMoney(safe.flexSpent)} spent from ${formatMoney(safe.flexBudget)} monthly flexible money`}
+            detail={`${formatMoney(safe.flexSpent)} spent of ${formatMoney(safe.flexBudget)}`}
             color={overBudget ? theme.danger : onTrack ? theme.primary : theme.warning}
             formatValue={(value) => formatMoney(value)}
           />
-          <ThemedText type="small" themeColor="textSecondary" style={styles.gaugeCaption}>
-            This empties as flexible spending posts. Example: a {formatMoney(500)} monthly tank
-            drops to {formatMoney(450)} after {formatMoney(50)} spent.
-          </ThemedText>
         </Card>
 
         {view.nextBill ? (
@@ -242,9 +238,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
-  },
-  gaugeCaption: {
-    textAlign: 'center',
   },
   stackCard: {
     gap: Spacing.two,

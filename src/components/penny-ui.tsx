@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Fragment, PropsWithChildren, ReactNode, useEffect, useState } from 'react';
@@ -56,12 +57,11 @@ type ScreenProps = {
 };
 
 /**
- * Penny's corner avatar doubles as the door to settings and account management:
- * tap Penny anywhere in the app and she offers help plus the settings gear.
+ * Penny's corner avatar still opens settings when tapped, but the explicit gear
+ * button next to her is what makes the destination obvious.
  */
 function MascotDoor({ children }: PropsWithChildren) {
   const router = useRouter();
-  const theme = useTheme();
 
   return (
     <Pressable
@@ -70,21 +70,31 @@ function MascotDoor({ children }: PropsWithChildren) {
       hitSlop={8}
       onPress={() => router.push('/auth')}
       style={({ pressed }) => [styles.mascotDoor, { opacity: pressed ? 0.7 : 1 }]}>
-      <View>
-        {children}
-        <View
-          pointerEvents="none"
-          style={[
-            styles.mascotGear,
-            {
-              backgroundColor: theme.primary,
-              borderColor: theme.backgroundElement,
-              shadowColor: theme.primary,
-            },
-          ]}>
-          <ThemedText style={[styles.mascotGearGlyph, { color: theme.onPrimary }]}>⚙</ThemedText>
-        </View>
-      </View>
+      {children}
+    </Pressable>
+  );
+}
+
+/** Circular gear button in every screen header — the unambiguous door to settings. */
+export function SettingsButton() {
+  const router = useRouter();
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Settings"
+      hitSlop={8}
+      onPress={() => router.push('/auth')}
+      style={({ pressed }) => [
+        styles.settingsButton,
+        {
+          backgroundColor: theme.backgroundElement,
+          borderColor: theme.border,
+          opacity: pressed ? 0.7 : 1,
+        },
+      ]}>
+      <Ionicons name="settings-outline" size={19} color={theme.secondary} />
     </Pressable>
   );
 }
@@ -112,6 +122,7 @@ export function Screen({
             eyebrow={eyebrow}
             title={title}
             subtitle={subtitle}
+            action={<SettingsButton />}
             mascot={mascot ? <MascotDoor>{mascot}</MascotDoor> : undefined}
           />
           {segments && active !== undefined && onSelect ? (
@@ -259,12 +270,13 @@ type PageHeadProps = {
   eyebrow?: string;
   title: string;
   subtitle?: string;
+  action?: ReactNode;
   mascot?: ReactNode;
 };
 
 /** Large editorial page title + subtitle (mirrors finance_tracker's .page-head), with an
- *  optional mascot slot on the right so Penny still greets each screen. */
-export function PageHead({ eyebrow, title, subtitle, mascot }: PageHeadProps) {
+ *  optional action (settings gear) and mascot slot so Penny still greets each screen. */
+export function PageHead({ eyebrow, title, subtitle, action, mascot }: PageHeadProps) {
   return (
     <View style={styles.pageHead}>
       <View style={styles.pageHeadCopy}>
@@ -280,6 +292,7 @@ export function PageHead({ eyebrow, title, subtitle, mascot }: PageHeadProps) {
           </ThemedText>
         ) : null}
       </View>
+      {action}
       {mascot}
     </View>
   );
@@ -293,12 +306,14 @@ export function Stat({
   value,
   delta,
   trend = 'flat',
+  centered,
   style,
 }: {
   label: string;
   value: string;
   delta?: string;
   trend?: StatTrend;
+  centered?: boolean;
   style?: ViewStyle;
 }) {
   const theme = useTheme();
@@ -306,7 +321,8 @@ export function Stat({
     trend === 'up' ? theme.success : trend === 'down' ? theme.danger : theme.textSecondary;
 
   return (
-    <Card style={StyleSheet.flatten([styles.statCard, style])}>
+    <Card
+      style={StyleSheet.flatten([styles.statCard, centered && { alignItems: 'center' }, style])}>
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
         {label}
       </ThemedText>
@@ -382,7 +398,7 @@ export function Pill({ label, tone = 'cat' }: { label: string; tone?: PillTone }
     good: { bg: 'rgba(95, 196, 156, 0.16)', fg: theme.success },
     bad: { bg: 'rgba(228, 121, 107, 0.18)', fg: theme.danger },
     muted: { bg: theme.backgroundSelected, fg: theme.textSecondary },
-    info: { bg: 'rgba(127, 182, 232, 0.16)', fg: theme.accent },
+    info: { bg: 'rgba(93, 124, 150, 0.14)', fg: theme.info },
   };
   const { bg, fg } = palette[tone];
 
@@ -625,7 +641,8 @@ export function ProgressBar({ value, color }: ProgressBarProps) {
 
 /**
  * Penny's speech bubble. All of Penny's dialogue renders in this one component so
- * users learn "gold bubble = Penny talking to me."
+ * users learn "the copper-trimmed bubble = Penny talking to me." A soft tint with
+ * a copper edge, not a solid block — the brand color stays an accent, not a wall.
  */
 export function SpeechBubble({
   children,
@@ -642,10 +659,12 @@ export function SpeechBubble({
   return (
     <View style={styles.speechRow}>
       <PennyBadge mode={mode} expression={expression} animated={animated} size={44} />
-      <View style={[styles.speechBubble, { backgroundColor: theme.primary }]}>
-        <ThemedText type="smallBold" style={{ color: theme.onPrimary }}>
-          {children}
-        </ThemedText>
+      <View
+        style={[
+          styles.speechBubble,
+          { backgroundColor: theme.backgroundSelected, borderColor: theme.primary },
+        ]}>
+        <ThemedText type="smallBold">{children}</ThemedText>
       </View>
     </View>
   );
@@ -838,6 +857,7 @@ const styles = StyleSheet.create({
   },
   speechBubble: {
     flex: 1,
+    borderWidth: 1.5,
     borderRadius: Radius.card,
     borderBottomLeftRadius: 4,
     paddingHorizontal: Spacing.three,
@@ -933,25 +953,13 @@ const styles = StyleSheet.create({
   mascotDoor: {
     alignSelf: 'flex-start',
   },
-  mascotGear: {
-    position: 'absolute',
-    right: 2,
-    bottom: 8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
+  settingsButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 5,
-  },
-  mascotGearGlyph: {
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: '900',
   },
   pageHeadCopy: {
     flex: 1,

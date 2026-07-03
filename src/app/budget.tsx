@@ -9,7 +9,6 @@ import {
   MonthTicker,
   PANEL_BOTTOM_INSET,
   PennyBadge,
-  Pill,
   PillButton,
   ProgressBar,
   Screen,
@@ -17,7 +16,7 @@ import {
   ToggleChip,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
-import { chartPalette, Radius, Spacing } from '@/constants/theme';
+import { chartPalette, colorForCategory, Radius, Spacing } from '@/constants/theme';
 import { mobileBudgetPlan, mobileSavingsConfig, mobileTransactions } from '@/data/personal-finance-template';
 import {
   avgForecast,
@@ -569,6 +568,7 @@ export default function PlanScreen() {
                     label={section.title}
                     spent={section.spent}
                     capacity={section.capacity}
+                    color={colorForCategory(section.title)}
                     formatValue={(value) => formatMoney(value)}
                   />
                   {openSection === section.title && !moveMode ? (
@@ -637,7 +637,7 @@ export default function PlanScreen() {
           style={styles.panel}
           contentContainerStyle={styles.body}
           showsVerticalScrollIndicator={false}>
-          <Card style={[styles.destinationCard, { borderColor: theme.accent }]}>
+          <Card style={[styles.destinationCard, { borderColor: theme.info }]}>
             <View style={styles.destinationHead}>
               <View style={styles.destinationCopy}>
                 <ThemedText type="small" style={{ color: theme.secondary }}>
@@ -648,19 +648,20 @@ export default function PlanScreen() {
                   {goalSummary.label}
                 </ThemedText>
               </View>
-              <Pill label={`${Math.round(goalSummary.progress * 100)}%`} tone="info" />
             </View>
-            <ProgressBar value={goalSummary.progress} />
-            <View style={styles.chips}>
-              {goals.map((goalItem) => (
-                <ToggleChip
-                  key={goalItem.id}
-                  label={goalItem.name}
-                  selected={goalItem.id === selectedGoal?.id}
-                  onPress={() => setSelectedGoalId(goalItem.id)}
-                />
-              ))}
-            </View>
+            <ProgressBar value={goalSummary.progress} color={theme.info} />
+            {goals.length > 1 ? (
+              <View style={styles.chips}>
+                {goals.map((goalItem) => (
+                  <ToggleChip
+                    key={goalItem.id}
+                    label={goalItem.name}
+                    selected={goalItem.id === selectedGoal?.id}
+                    onPress={() => setSelectedGoalId(goalItem.id)}
+                  />
+                ))}
+              </View>
+            ) : null}
             <View style={styles.chips}>
               <ToggleChip
                 label="Track arrival"

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { chartPalette, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 const TOOLTIP_WIDTH = 104;
@@ -154,7 +154,7 @@ export function TrendBars({
             ? point.value >= 0
               ? theme.success
               : theme.danger
-            : theme.accent;
+            : chartPalette.steelBlue;
 
           return (
             <Pressable

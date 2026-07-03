@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import {
   Tabs,
   TabList,
@@ -6,6 +7,7 @@ import {
   TabTriggerSlotProps,
   TabListProps,
 } from 'expo-router/ui';
+import type { ComponentProps } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,11 +16,12 @@ import { ThemedText } from './themed-text';
 import { MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
+
 /**
- * Bottom tab bar: 4 destinations + the center "Can I afford this?" action button.
- * Everything stays one thumb-tap away; the forecast check gets the most valuable
- * real estate in the app. Settings/account intentionally have no tab — they live
- * behind Penny's avatar in each screen's top corner.
+ * Bottom tab bar: five equal destinations. Icons pair an outline (resting) with a
+ * filled variant (active) so the current tab reads at a glance. Settings live
+ * behind the gear in each screen's header, not in the bar.
  */
 export default function AppTabs() {
   return (
@@ -27,19 +30,19 @@ export default function AppTabs() {
       <TabList asChild>
         <TabBar>
           <TabTrigger name="index" href="/" asChild>
-            <TabButton icon="⌂" label="Overview" />
+            <TabButton icon="home" label="Overview" />
           </TabTrigger>
           <TabTrigger name="transactions" href="/transactions" asChild>
-            <TabButton icon="▤" label="Transactions" />
+            <TabButton icon="receipt" label="Transactions" />
           </TabTrigger>
           <TabTrigger name="afford" href="/afford" asChild>
-            <AffordButton />
+            <TabButton icon="calculator" label="Afford" />
           </TabTrigger>
           <TabTrigger name="budget" href="/budget" asChild>
-            <TabButton icon="▦" label="Plan" />
+            <TabButton icon="wallet" label="Plan" />
           </TabTrigger>
           <TabTrigger name="logbook" href="/logbook" asChild>
-            <TabButton icon="⌁" label="Logbook" />
+            <TabButton icon="book" label="Logbook" />
           </TabTrigger>
 
           {/* Reachable routes without a tab of their own. */}
@@ -65,6 +68,7 @@ function TabButton({
   ...props
 }: TabTriggerSlotProps & { icon: string; label: string }) {
   const theme = useTheme();
+  const iconName = (isFocused ? icon : `${icon}-outline`) as IoniconName;
 
   return (
     <Pressable
@@ -89,11 +93,8 @@ function TabButton({
             backgroundColor: isFocused ? theme.primary : theme.background,
             borderColor: isFocused ? theme.primaryHover : theme.border,
           },
-        ]}
-      >
-        <ThemedText style={[styles.tabIcon, { color: isFocused ? theme.onPrimary : theme.secondary }]}>
-          {icon}
-        </ThemedText>
+        ]}>
+        <Ionicons name={iconName} size={18} color={isFocused ? theme.onPrimary : theme.secondary} />
       </View>
       {isFocused ? (
         <ThemedText
@@ -105,36 +106,6 @@ function TabButton({
           {label}
         </ThemedText>
       ) : null}
-    </Pressable>
-  );
-}
-
-/** The center action: a gold circle that opens the affordability forecast. */
-function AffordButton({ isFocused, ...props }: TabTriggerSlotProps) {
-  const theme = useTheme();
-
-  return (
-    <Pressable
-      {...props}
-      accessibilityLabel="Can I afford this?"
-      style={({ pressed }) => [styles.affordSlot, pressed && styles.pressed]}>
-      <View
-        style={[
-          styles.affordCircle,
-          {
-            backgroundColor: theme.primary,
-            borderColor: isFocused ? theme.primaryHover : theme.backgroundElement,
-            shadowColor: theme.primary,
-          },
-        ]}>
-        <ThemedText style={[styles.affordGlyph, { color: theme.onPrimary }]}>$?</ThemedText>
-      </View>
-      <ThemedText
-        type="smallBold"
-        numberOfLines={1}
-        style={{ color: isFocused ? theme.primary : theme.textSecondary, fontSize: 10.5 }}>
-        Afford?
-      </ThemedText>
     </Pressable>
   );
 }
@@ -206,33 +177,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  tabIcon: {
-    fontSize: 18,
-    lineHeight: 21,
-    fontWeight: '900',
-  },
-  affordSlot: {
-    alignItems: 'center',
-    gap: 2,
-    marginTop: -Spacing.four,
-  },
-  affordCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    borderWidth: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOpacity: 0.45,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-  affordGlyph: {
-    fontSize: 19,
-    lineHeight: 24,
-    fontWeight: 800,
   },
   pressed: {
     opacity: 0.75,

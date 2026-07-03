@@ -187,12 +187,13 @@ export default function LogbookScreen() {
           </View>
 
           <View style={styles.kpiRow}>
-            <Stat label="In" value={formatMoney(report.incomeM)} style={styles.kpiTile} />
-            <Stat label="Out" value={formatMoney(report.spendM)} style={styles.kpiTile} />
+            <Stat label="In" value={formatMoney(report.incomeM)} centered style={styles.kpiTile} />
+            <Stat label="Out" value={formatMoney(report.spendM)} centered style={styles.kpiTile} />
             <Stat
               label="Net"
               value={formatMoney(report.netM)}
               trend={netUp ? 'up' : 'down'}
+              centered
               style={styles.kpiTile}
             />
           </View>

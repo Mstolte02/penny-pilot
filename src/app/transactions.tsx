@@ -1,5 +1,3 @@
-import * as DocumentPicker from 'expo-document-picker';
-import { File as FsFile } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -330,6 +328,10 @@ export default function TransactionsScreen() {
   const importCsv = async () => {
     setImportError(null);
     try {
+      // Lazy-loaded: these modules carry native code, so an app binary built
+      // before they were added would crash on a static import. Loading them here
+      // turns "missing module" into a friendly message instead of a dead screen.
+      const DocumentPicker = await import('expo-document-picker');
       const result = await DocumentPicker.getDocumentAsync({
         type: ['text/csv', 'text/comma-separated-values', 'text/plain', 'application/csv'],
         copyToCacheDirectory: true,
@@ -342,6 +344,7 @@ export default function TransactionsScreen() {
       if (Platform.OS === 'web' && asset.file) {
         text = await asset.file.text();
       } else {
+        const { File: FsFile } = await import('expo-file-system');
         text = await new FsFile(asset.uri).text();
       }
 
@@ -359,7 +362,16 @@ export default function TransactionsScreen() {
         return;
       }
       setImportPreview(preview);
-    } catch {
+    } catch (importFailure) {
+      if (
+        importFailure instanceof Error &&
+        /native module|requireNativeModule|ExpoDocumentPicker|ExpoFileSystem/i.test(importFailure.message)
+      ) {
+        setImportError(
+          'This app build is missing the file picker — it needs one rebuild (eas build --profile development-device). Until then, imports work on the web version (note: each device keeps its own local data for now).'
+        );
+        return;
+      }
       setImportError('Could not read that file. Make sure it is a CSV export from your bank.');
     }
   };

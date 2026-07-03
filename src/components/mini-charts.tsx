@@ -6,6 +6,7 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 const TOOLTIP_WIDTH = 104;
+const LINE_TOOLTIP_WIDTH = 136;
 
 type TrendPoint = {
   label: string;
@@ -178,7 +179,6 @@ export function TrendBars({
                 ]}
                 />
               </View>
-              {isLast ? <View style={[styles.latestDot, { backgroundColor: color }]} /> : null}
             </Pressable>
           );
         })}
@@ -370,6 +370,7 @@ export function LineChart({
 }: LineChartProps) {
   const theme = useTheme();
   const [plotWidth, setPlotWidth] = useState(0);
+  const [selected, setSelected] = useState<number | null>(null);
 
   const allValues = series.flatMap((entry) => entry.points.map((point) => point.value));
   const rawMax = Math.max(...allValues, 1);
@@ -395,6 +396,28 @@ export function LineChart({
   })();
 
   const gridFractions = [0, 0.5, 1];
+  const pointCount = series[0]?.points.length ?? 0;
+  const selectedLabel = selected !== null ? series[0]?.points[selected]?.label : null;
+  const selectedX =
+    selected !== null && pointCount > 1 ? (selected / (pointCount - 1)) * plotWidth : plotWidth / 2;
+  const tooltipLeft =
+    selected !== null
+      ? Math.min(
+          Math.max(selectedX - LINE_TOOLTIP_WIDTH / 2, 0),
+          Math.max(plotWidth - LINE_TOOLTIP_WIDTH, 0)
+        )
+      : 0;
+  const tooltipTop =
+    selected !== null
+      ? Math.max(
+          0,
+          Math.min(
+            ...coords
+              .map((entry) => entry[selected]?.y)
+              .filter((value): value is number => typeof value === 'number')
+          ) - 56
+        )
+      : 0;
 
   return (
     <View style={styles.lineChart}>
@@ -555,6 +578,70 @@ export function LineChart({
                 );
               })
             : null}
+
+          {plotWidth > 0 && pointCount > 0 ? (
+            <View style={StyleSheet.absoluteFill}>
+              {Array.from({ length: pointCount }).map((_, index) => {
+                const left =
+                  pointCount > 1
+                    ? (index / (pointCount - 1)) * plotWidth - plotWidth / pointCount / 2
+                    : 0;
+                return (
+                  <Pressable
+                    key={`hit-${index}`}
+                    accessibilityLabel={`Show ${series[0]?.points[index]?.label ?? 'point'} values`}
+                    onPress={() => setSelected(selected === index ? null : index)}
+                    style={[
+                      styles.lineHit,
+                      {
+                        left: Math.max(0, left),
+                        width: Math.max(18, plotWidth / Math.max(pointCount, 1)),
+                      },
+                    ]}
+                  />
+                );
+              })}
+            </View>
+          ) : null}
+
+          {selected !== null && selectedLabel && plotWidth > 0 ? (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.lineTooltip,
+                {
+                  left: tooltipLeft,
+                  top: tooltipTop,
+                  backgroundColor: theme.background,
+                  borderColor: theme.borderStrong,
+                },
+              ]}>
+              <ThemedText type="smallBold" numberOfLines={1}>
+                {selectedLabel}
+              </ThemedText>
+              {series.map((entry, index) => {
+                const value = entry.points[selected]?.value;
+                if (value === undefined) return null;
+                const label = legend?.[index]?.label ?? `Series ${index + 1}`;
+                return (
+                  <View key={`${label}-${index}`} style={styles.lineTooltipRow}>
+                    <View
+                      style={[
+                        styles.lineTooltipDot,
+                        { backgroundColor: entry.color ?? theme.primary },
+                      ]}
+                    />
+                    <ThemedText type="small" numberOfLines={1} style={styles.lineTooltipLabel}>
+                      {label}
+                    </ThemedText>
+                    <ThemedText type="smallBold" numberOfLines={1}>
+                      {formatValue(value)}
+                    </ThemedText>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -616,6 +703,11 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
   },
+  lineHit: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+  },
   lineGrid: {
     position: 'absolute',
     left: 0,
@@ -657,6 +749,31 @@ const styles = StyleSheet.create({
     width: 3,
     height: 3,
     borderRadius: 1.5,
+  },
+  lineTooltip: {
+    position: 'absolute',
+    width: LINE_TOOLTIP_WIDTH,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    gap: 4,
+    zIndex: 20,
+    elevation: 8,
+  },
+  lineTooltipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  lineTooltipDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  lineTooltipLabel: {
+    flex: 1,
+    minWidth: 0,
   },
   chartSummary: {
     flexDirection: 'row',
@@ -704,12 +821,6 @@ const styles = StyleSheet.create({
     minHeight: 4,
     borderTopLeftRadius: 999,
     borderTopRightRadius: 999,
-  },
-  latestDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginTop: 4,
   },
   trendOverlay: {
     position: 'absolute',

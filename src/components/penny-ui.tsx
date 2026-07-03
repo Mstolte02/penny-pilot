@@ -61,6 +61,7 @@ type ScreenProps = {
  */
 function MascotDoor({ children }: PropsWithChildren) {
   const router = useRouter();
+  const theme = useTheme();
 
   return (
     <Pressable
@@ -68,8 +69,22 @@ function MascotDoor({ children }: PropsWithChildren) {
       accessibilityLabel="Penny — help and settings"
       hitSlop={8}
       onPress={() => router.push('/auth')}
-      style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
-      {children}
+      style={({ pressed }) => [styles.mascotDoor, { opacity: pressed ? 0.7 : 1 }]}>
+      <View>
+        {children}
+        <View
+          pointerEvents="none"
+          style={[
+            styles.mascotGear,
+            {
+              backgroundColor: theme.primary,
+              borderColor: theme.backgroundElement,
+              shadowColor: theme.primary,
+            },
+          ]}>
+          <ThemedText style={[styles.mascotGearGlyph, { color: theme.onPrimary }]}>⚙</ThemedText>
+        </View>
+      </View>
     </Pressable>
   );
 }
@@ -646,12 +661,14 @@ export function FuelGauge({
   capacity,
   formatValue,
   detail,
+  color,
 }: {
   label: string;
   spent: number;
   capacity: number;
   formatValue: (value: number) => string;
   detail?: string;
+  color?: string;
 }) {
   const theme = useTheme();
   const remaining = capacity - spent;
@@ -664,7 +681,7 @@ export function FuelGauge({
         <ThemedText type="smallBold" numberOfLines={1} style={styles.fuelLabel}>
           {label}
         </ThemedText>
-        <ThemedText type="money" style={{ color: low ? theme.danger : theme.primary }}>
+        <ThemedText type="money" style={{ color: low ? theme.danger : color ?? theme.primary }}>
           {formatValue(Math.max(0, remaining))}
         </ThemedText>
       </View>
@@ -673,7 +690,7 @@ export function FuelGauge({
           style={[
             styles.fuelFill,
             {
-              backgroundColor: low ? theme.danger : theme.primary,
+              backgroundColor: low ? theme.danger : color ?? theme.primary,
               width: `${Math.max(2, fraction * 100)}%`,
             },
           ]}
@@ -912,6 +929,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.three,
+  },
+  mascotDoor: {
+    alignSelf: 'flex-start',
+  },
+  mascotGear: {
+    position: 'absolute',
+    right: 2,
+    bottom: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
+  },
+  mascotGearGlyph: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
   },
   pageHeadCopy: {
     flex: 1,

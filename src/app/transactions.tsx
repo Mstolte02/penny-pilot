@@ -7,6 +7,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -73,6 +74,31 @@ type DetectedSubscription = {
   subcategory: string | null;
   monthly: number;
   inBudget: boolean;
+};
+
+type ManualTransaction = {
+  id: string;
+  date: string;
+  merchantName: string;
+  category: string;
+  amount: number;
+};
+
+type FeedTransactionPatch = {
+  merchantName: string;
+  category: string;
+  amount: number;
+};
+
+type TransactionEditorDraft = {
+  mode: 'manual' | 'feed';
+  title: string;
+  id?: string;
+  sourceId?: string;
+  date: string;
+  merchantName: string;
+  category: string;
+  amount: string;
 };
 
 /**
@@ -143,6 +169,9 @@ export default function TransactionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cancelFlags, setCancelFlags] = useState<Record<string, boolean>>({});
+  const [manualTransactions, setManualTransactions] = useState<ManualTransaction[]>([]);
+  const [transactionEdits, setTransactionEdits] = useState<Record<string, FeedTransactionPatch>>({});
+  const [editor, setEditor] = useState<TransactionEditorDraft | null>(null);
 
   const subscriptions = useMemo(() => detectSubscriptions(), []);
   const monthlyBurn = subscriptions.reduce((sum, subscription) => sum + subscription.monthly, 0);
@@ -215,6 +244,67 @@ export default function TransactionsScreen() {
   const confidenceFor = (transaction: Transaction) =>
     confidenceDisplay[suggestions[transaction.id]?.confidence ?? 'none'];
 
+  const openManualEditor = (transaction?: ManualTransaction) => {
+    setEditor({
+      mode: 'manual',
+      title: transaction ? 'Edit manual transaction' : 'Add manual transaction',
+      id: transaction?.id,
+      date: transaction?.date ?? new Date().toISOString().slice(0, 10),
+      merchantName: transaction?.merchantName ?? '',
+      category: transaction?.category ?? 'Uncategorized',
+      amount: transaction ? String(transaction.amount) : '',
+    });
+  };
+
+  const openFeedEditor = (transaction: Transaction) => {
+    const patch = transactionEdits[transaction.id];
+    setEditor({
+      mode: 'feed',
+      title: 'Correct transaction',
+      sourceId: transaction.id,
+      date: transaction.date,
+      merchantName: patch?.merchantName ?? transaction.merchantName,
+      category: patch?.category ?? guessFor(transaction),
+      amount: String(patch?.amount ?? transaction.amount),
+    });
+  };
+
+  const saveEditor = () => {
+    if (!editor) return;
+    const amount = Number(editor.amount.replace(/[^0-9.-]/g, '')) || 0;
+    const merchantName = editor.merchantName.trim() || 'Untitled transaction';
+    const category = editor.category.trim() || 'Uncategorized';
+
+    if (editor.mode === 'manual') {
+      const id = editor.id ?? `manual-${Date.now()}`;
+      setManualTransactions((current) => {
+        const next: ManualTransaction = {
+          id,
+          date: editor.date || new Date().toISOString().slice(0, 10),
+          merchantName,
+          category,
+          amount,
+        };
+        return current.some((entry) => entry.id === id)
+          ? current.map((entry) => (entry.id === id ? next : entry))
+          : [next, ...current];
+      });
+    } else if (editor.sourceId) {
+      setTransactionEdits((current) => ({
+        ...current,
+        [editor.sourceId!]: { merchantName, category, amount },
+      }));
+    }
+
+    setEditor(null);
+  };
+
+  const deleteManual = () => {
+    if (!editor?.id) return;
+    setManualTransactions((current) => current.filter((entry) => entry.id !== editor.id));
+    setEditor(null);
+  };
+
   return (
     <Screen
       eyebrow="Activity"
@@ -246,6 +336,47 @@ export default function TransactionsScreen() {
               Review transactions ({transactions.length})
             </PillButton>
           ) : null}
+
+          <Card style={styles.manualCard}>
+            <View style={styles.manualTop}>
+              <View style={styles.manualCopy}>
+                <ThemedText type="smallBold">Manual transactions</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Use this with bank exports, cash, Venmo, or anything you want to correct by hand.
+                </ThemedText>
+              </View>
+              <PillButton tone="primary" onPress={() => openManualEditor()}>
+                Add
+              </PillButton>
+            </View>
+            {manualTransactions.length === 0 ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                No manual entries yet.
+              </ThemedText>
+            ) : (
+              manualTransactions.map((transaction) => (
+                <Pressable
+                  key={transaction.id}
+                  onPress={() => openManualEditor(transaction)}
+                  style={({ pressed }) => [
+                    styles.manualRow,
+                    { borderTopColor: theme.border, opacity: pressed ? 0.72 : 1 },
+                  ]}>
+                  <View style={styles.feedCopy}>
+                    <ThemedText type="smallBold" numberOfLines={1}>
+                      {transaction.merchantName}
+                    </ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                      {dayLabel(transaction.date)} · {transaction.category}
+                    </ThemedText>
+                  </View>
+                  <ThemedText type="money" style={styles.feedAmount}>
+                    {formatTransactionMoney(transaction.amount)}
+                  </ThemedText>
+                </Pressable>
+              ))
+            )}
+          </Card>
 
           {error ? (
             <Card style={styles.gap}>
@@ -279,6 +410,7 @@ export default function TransactionsScreen() {
               <Card style={styles.dayCard}>
                 {dayTransactions.map((transaction, index) => {
                   const confidence = confidenceFor(transaction);
+                  const edit = transactionEdits[transaction.id];
                   return (
                     <View
                       key={transaction.id}
@@ -288,15 +420,21 @@ export default function TransactionsScreen() {
                       ]}>
                       <View style={styles.feedCopy}>
                         <ThemedText type="smallBold" numberOfLines={1}>
-                          {transaction.merchantName}
+                          {edit?.merchantName ?? transaction.merchantName}
                         </ThemedText>
                         <ThemedText type="small" style={{ color: theme.primary }} numberOfLines={1}>
-                          {guessFor(transaction)}
+                          {edit?.category ?? guessFor(transaction)}
                         </ThemedText>
-                        <Pill label={confidence.label} tone={confidence.tone} />
+                        <View style={styles.feedTags}>
+                          <Pill
+                            label={edit ? 'Edited' : confidence.label}
+                            tone={edit ? 'info' : confidence.tone}
+                          />
+                          <PillButton onPress={() => openFeedEditor(transaction)}>Edit</PillButton>
+                        </View>
                       </View>
                       <ThemedText type="money" style={styles.feedAmount}>
-                        {formatTransactionMoney(transaction.amount)}
+                        {formatTransactionMoney(edit?.amount ?? transaction.amount)}
                       </ThemedText>
                     </View>
                   );
@@ -408,6 +546,13 @@ export default function TransactionsScreen() {
           });
         }}
         onError={setError}
+      />
+      <TransactionEditorModal
+        draft={editor}
+        onChange={setEditor}
+        onClose={() => setEditor(null)}
+        onSave={saveEditor}
+        onDelete={editor?.mode === 'manual' && editor.id ? deleteManual : undefined}
       />
     </Screen>
   );
@@ -668,6 +813,113 @@ function ReviewCard({
   );
 }
 
+function TransactionEditorModal({
+  draft,
+  onChange,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  draft: TransactionEditorDraft | null;
+  onChange: (draft: TransactionEditorDraft | null) => void;
+  onClose: () => void;
+  onSave: () => void;
+  onDelete?: () => void;
+}) {
+  const theme = useTheme();
+  const update = (patch: Partial<TransactionEditorDraft>) => {
+    if (!draft) return;
+    onChange({ ...draft, ...patch });
+  };
+
+  return (
+    <Modal visible={draft !== null} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View
+          style={[
+            styles.editorSheet,
+            { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
+          ]}>
+          <View style={styles.editorHead}>
+            <PennyBadge expression="thinking" size={54} animated={false} />
+            <View style={styles.manualCopy}>
+              <ThemedText type="section">{draft?.title ?? 'Transaction'}</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                You can fix a row any time if the export, category, or amount feels off.
+              </ThemedText>
+            </View>
+          </View>
+
+          <EditorField
+            label="Merchant"
+            value={draft?.merchantName ?? ''}
+            onChangeText={(value) => update({ merchantName: value })}
+          />
+          <EditorField
+            label="Date"
+            value={draft?.date ?? ''}
+            onChangeText={(value) => update({ date: value })}
+            placeholder="YYYY-MM-DD"
+          />
+          <EditorField
+            label="Category"
+            value={draft?.category ?? ''}
+            onChangeText={(value) => update({ category: value })}
+          />
+          <EditorField
+            label="Amount"
+            value={draft?.amount ?? ''}
+            onChangeText={(value) => update({ amount: value })}
+            keyboardType="decimal-pad"
+            placeholder="0.00"
+          />
+
+          <View style={styles.editorActions}>
+            <PillButton tone="primary" onPress={onSave}>
+              Save
+            </PillButton>
+            <PillButton onPress={onClose}>Cancel</PillButton>
+            {onDelete ? <PillButton onPress={onDelete}>Delete</PillButton> : null}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function EditorField({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  keyboardType?: 'default' | 'decimal-pad';
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.editorField}>
+      <ThemedText type="smallBold">{label}</ThemedText>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={theme.textSecondary}
+        keyboardType={keyboardType}
+        style={[
+          styles.editorInput,
+          { borderColor: theme.border, color: theme.text, backgroundColor: theme.background },
+        ]}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   panel: {
     flex: 1,
@@ -682,6 +934,27 @@ const styles = StyleSheet.create({
   statusRow: {
     flexDirection: 'row',
     gap: Spacing.two,
+  },
+  manualCard: {
+    gap: Spacing.two,
+  },
+  manualTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  manualCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  manualRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderTopWidth: 1,
+    paddingTop: Spacing.two,
   },
   loadingCard: {
     minHeight: 140,
@@ -715,6 +988,12 @@ const styles = StyleSheet.create({
   },
   feedAmount: {
     flexShrink: 0,
+  },
+  feedTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: Spacing.one,
   },
   burnCard: {
     alignItems: 'center',
@@ -764,6 +1043,34 @@ const styles = StyleSheet.create({
     borderRadius: Radius.card + 6,
     padding: Spacing.four,
     gap: Spacing.three,
+  },
+  editorSheet: {
+    width: '100%',
+    maxWidth: 520,
+    borderWidth: 1,
+    borderRadius: Radius.card + 6,
+    padding: Spacing.four,
+    gap: Spacing.three,
+  },
+  editorHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  editorField: {
+    gap: Spacing.one,
+  },
+  editorInput: {
+    borderWidth: 1,
+    borderRadius: Radius.control,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    fontSize: 15,
+  },
+  editorActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
   },
   reviewHeader: {
     flexDirection: 'row',

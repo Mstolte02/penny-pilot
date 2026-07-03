@@ -4,8 +4,8 @@ import { useEffect, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import {
-  AltitudeArc,
   Card,
+  FuelGauge,
   PANEL_BOTTOM_INSET,
   PennyBadge,
   Pill,
@@ -123,8 +123,6 @@ export default function OverviewScreen() {
   const overBudget = safe.perDay <= 0;
   const heroColor = overBudget ? theme.danger : theme.primary;
   const mascot = overBudget ? 'concerned' : onTrack ? 'onTrack' : 'thinking';
-  const burnPct = Math.round(Math.min(burn, 1) * 100);
-  const datePct = Math.round(datePosition * 100);
 
   return (
     <Screen
@@ -156,19 +154,23 @@ export default function OverviewScreen() {
 
         <Card style={styles.gaugeCard}>
           <View style={styles.gaugeHead}>
-            <ThemedText type="smallBold">Month progress</ThemedText>
-            <Pill label={onTrack ? 'On track' : 'Ahead of pace'} tone={onTrack ? 'good' : 'bad'} />
+            <ThemedText type="smallBold">Monthly safe-to-spend tank</ThemedText>
+            <Pill
+              label={overBudget ? 'Empty' : onTrack ? 'Healthy' : 'Running low'}
+              tone={overBudget ? 'bad' : onTrack ? 'good' : 'info'}
+            />
           </View>
-          <AltitudeArc
-            burn={burn}
-            datePosition={datePosition}
-            centerLabel={`${burnPct}% spent`}
-            centerSub={`day ${view.dayOfMonth} of ${view.totalDays}`}
+          <FuelGauge
+            label={`${formatMoney(Math.max(0, safe.flexBudget - safe.flexSpent))} left`}
+            spent={safe.flexSpent}
+            capacity={safe.flexBudget}
+            detail={`${formatMoney(safe.flexSpent)} spent from ${formatMoney(safe.flexBudget)} monthly flexible money`}
+            color={overBudget ? theme.danger : onTrack ? theme.primary : theme.warning}
+            formatValue={(value) => formatMoney(value)}
           />
           <ThemedText type="small" themeColor="textSecondary" style={styles.gaugeCaption}>
-            The fill is how much of {view.monthName}&apos;s flexible budget is spent ({burnPct}%).
-            The dark pin marks today ({datePct}% through the month) — staying behind the pin means
-            you&apos;re on track.
+            This empties as flexible spending posts. Example: a {formatMoney(500)} monthly tank
+            drops to {formatMoney(450)} after {formatMoney(50)} spent.
           </ThemedText>
         </Card>
 

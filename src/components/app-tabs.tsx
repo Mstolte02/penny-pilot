@@ -27,19 +27,19 @@ export default function AppTabs() {
       <TabList asChild>
         <TabBar>
           <TabTrigger name="index" href="/" asChild>
-            <TabButton>Overview</TabButton>
+            <TabButton icon="⌂" label="Overview" />
           </TabTrigger>
           <TabTrigger name="transactions" href="/transactions" asChild>
-            <TabButton>Transactions</TabButton>
+            <TabButton icon="▤" label="Transactions" />
           </TabTrigger>
           <TabTrigger name="afford" href="/afford" asChild>
             <AffordButton />
           </TabTrigger>
           <TabTrigger name="budget" href="/budget" asChild>
-            <TabButton>Plan</TabButton>
+            <TabButton icon="▦" label="Plan" />
           </TabTrigger>
           <TabTrigger name="logbook" href="/logbook" asChild>
-            <TabButton>Logbook</TabButton>
+            <TabButton icon="⌁" label="Logbook" />
           </TabTrigger>
 
           {/* Reachable routes without a tab of their own. */}
@@ -58,27 +58,53 @@ export default function AppTabs() {
   );
 }
 
-function TabButton({ children, isFocused, ...props }: TabTriggerSlotProps) {
+function TabButton({
+  icon,
+  label,
+  isFocused,
+  ...props
+}: TabTriggerSlotProps & { icon: string; label: string }) {
   const theme = useTheme();
 
   return (
     <Pressable
       {...props}
-      style={({ pressed }) => [styles.tabButton, pressed && styles.pressed]}>
+      accessibilityLabel={label}
+      style={({ pressed }) => [
+        styles.tabButton,
+        isFocused && [
+          styles.tabButtonActive,
+          {
+            backgroundColor: theme.backgroundSelected,
+            borderColor: theme.primary,
+            shadowColor: theme.primary,
+          },
+        ],
+        pressed && styles.pressed,
+      ]}>
       <View
         style={[
-          styles.tabDot,
-          { backgroundColor: isFocused ? theme.primary : 'transparent' },
+          styles.iconTile,
+          {
+            backgroundColor: isFocused ? theme.primary : theme.background,
+            borderColor: isFocused ? theme.primaryHover : theme.border,
+          },
         ]}
-      />
-      <ThemedText
-        type="smallBold"
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.75}
-        style={{ color: isFocused ? theme.primary : theme.textSecondary, fontSize: 12 }}>
-        {children}
-      </ThemedText>
+      >
+        <ThemedText style={[styles.tabIcon, { color: isFocused ? theme.onPrimary : theme.secondary }]}>
+          {icon}
+        </ThemedText>
+      </View>
+      {isFocused ? (
+        <ThemedText
+          type="smallBold"
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+          style={{ color: theme.primary, fontSize: 11.5 }}>
+          {label}
+        </ThemedText>
+      ) : null}
     </Pressable>
   );
 }
@@ -143,7 +169,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
     maxWidth: MaxContentWidth,
-    minHeight: 66,
+    minHeight: 68,
     borderWidth: 1,
     borderRadius: Radius.card + 8,
     paddingHorizontal: Spacing.two,
@@ -155,17 +181,36 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   tabButton: {
-    flex: 1,
+    flex: 0.82,
     minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    borderRadius: Radius.control,
     paddingVertical: Spacing.one,
+    shadowOpacity: 0,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
   },
-  tabDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+  tabButtonActive: {
+    flex: 1.35,
+    shadowOpacity: 0.16,
+  },
+  iconTile: {
+    width: 34,
+    height: 30,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabIcon: {
+    fontSize: 18,
+    lineHeight: 21,
+    fontWeight: '900',
   },
   affordSlot: {
     alignItems: 'center',

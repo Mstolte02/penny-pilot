@@ -633,6 +633,26 @@ type ProgressBarProps = {
 
 export function ProgressBar({ value, color }: ProgressBarProps) {
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
+  const target = Math.max(4, Math.min(value * 100, 100));
+  const [fill] = useState(() => new Animated.Value(reducedMotion ? target : 4));
+
+  // Fill glides to its value on mount and on change; width animation is layout-
+  // driven, so this stays JS-side (useNativeDriver: false) by necessity.
+  useEffect(() => {
+    if (reducedMotion) {
+      fill.setValue(target);
+      return;
+    }
+    const animation = Animated.timing(fill, {
+      toValue: target,
+      duration: 620,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [target, fill, reducedMotion]);
 
   return (
     <View
@@ -640,12 +660,12 @@ export function ProgressBar({ value, color }: ProgressBarProps) {
         styles.progressTrack,
         { backgroundColor: theme.background, borderColor: theme.border },
       ]}>
-      <View
+      <Animated.View
         style={[
           styles.progressFill,
           {
             backgroundColor: color ?? theme.primary,
-            width: `${Math.max(4, Math.min(value * 100, 100))}%`,
+            width: fill.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }),
           },
         ]}
       />
@@ -704,9 +724,27 @@ export function FuelGauge({
   color?: string;
 }) {
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
   const remaining = capacity - spent;
   const fraction = capacity > 0 ? Math.max(0, Math.min(remaining / capacity, 1)) : 0;
   const low = fraction < 0.15;
+  const fuelTarget = Math.max(2, fraction * 100);
+  const [fuel] = useState(() => new Animated.Value(reducedMotion ? fuelTarget : 2));
+
+  useEffect(() => {
+    if (reducedMotion) {
+      fuel.setValue(fuelTarget);
+      return;
+    }
+    const animation = Animated.timing(fuel, {
+      toValue: fuelTarget,
+      duration: 700,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [fuelTarget, fuel, reducedMotion]);
 
   return (
     <View style={styles.fuelGauge}>
@@ -719,12 +757,12 @@ export function FuelGauge({
         </ThemedText>
       </View>
       <View style={[styles.fuelTrack, { backgroundColor: theme.background, borderColor: theme.border }]}>
-        <View
+        <Animated.View
           style={[
             styles.fuelFill,
             {
               backgroundColor: low ? theme.danger : color ?? theme.primary,
-              width: `${Math.max(2, fraction * 100)}%`,
+              width: fuel.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }),
             },
           ]}
         />

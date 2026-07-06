@@ -46,6 +46,9 @@ export default function AppTabs() {
           </TabTrigger>
 
           {/* Reachable routes without a tab of their own. */}
+          <TabTrigger name="hangar" href="/hangar" asChild>
+            <View style={styles.hiddenTab} />
+          </TabTrigger>
           <TabTrigger name="setup" href="/setup" asChild>
             <View style={styles.hiddenTab} />
           </TabTrigger>

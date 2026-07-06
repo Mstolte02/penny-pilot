@@ -3,6 +3,8 @@ import { useRouter } from 'expo-router';
 import { useEffect, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { PennyBriefing } from '@/components/penny-briefing';
+import { CountUpMoney, FadeInUp } from '@/components/penny-motion';
 import {
   Card,
   FuelGauge,
@@ -11,12 +13,12 @@ import {
   Pill,
   ProgressBar,
   Screen,
-  SpeechBubble,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { SETUP_COMPLETE_KEY } from '@/constants/penny-voice';
 import { daysInMonthOf, formatMoney, formatMonth, safeToSpendToday } from '@/domain/mobile-finance';
+import { pennyInsights } from '@/domain/penny-insights';
 import { useTheme } from '@/hooks/use-theme';
 import { planFromLines, useFinance, type PlanLine, type StoredTransaction } from '@/services/finance-store';
 
@@ -92,19 +94,13 @@ export default function OverviewScreen() {
       1
     ).toLocaleDateString('en-US', { month: 'short' });
 
-    const subscriptionsMonthly = planLines
-      .filter((line) => line.section === 'Subscriptions & Fun' && line.name !== 'Fun Money')
-      .reduce((sum, line) => sum + line.amount, 0);
-
-    const insights = [
-      burn <= datePosition
-        ? `You're on plan — ${formatMoney(safe.perDay)} a day keeps it that way.`
-        : `Spending is a little ahead of the calendar. A quiet week brings it back in line.`,
-      `Recurring subscriptions run ${formatMoney(subscriptionsMonthly)}/mo. The full list is on the Transactions tab.`,
-      goal
-        ? `${Math.round(goalProgress * 100)}% of the way to ${goal.name.toLowerCase()} — on track for ${goalArrival}.`
-        : 'Set a goal on the Plan tab and Penny will chart the arrival date.',
-    ];
+    const insights = pennyInsights({
+      transactions,
+      goals,
+      flexBudget: safe.flexBudget,
+      flexSpent: safe.flexSpent,
+      now,
+    });
 
     return {
       safe,
@@ -118,7 +114,7 @@ export default function OverviewScreen() {
       goalArrival,
       nextBill,
       nextBillMonth,
-      insight: insights[now.getDate() % insights.length],
+      insights,
     };
   }, [transactions, planLines, goals]);
 
@@ -138,80 +134,85 @@ export default function OverviewScreen() {
         style={styles.panel}
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
+        <FadeInUp style={styles.hero}>
           <ThemedText type="smallBold" style={[styles.heroLabel, { color: theme.secondary }]}>
             SAFE TO SPEND TODAY
           </ThemedText>
-          <ThemedText
-            type="hero"
+          <CountUpMoney
+            value={Math.max(0, safe.perDay)}
+            format={(value) => formatMoney(value)}
             style={{ color: heroColor }}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.5}>
-            {formatMoney(Math.max(0, safe.perDay))}
-          </ThemedText>
+          />
           <ThemedText type="small" themeColor="textSecondary">
             ~{formatMoney(safe.dailyTarget)}/day plan · {safe.daysLeft}{' '}
             {safe.daysLeft === 1 ? 'day' : 'days'} left in {view.monthName}
           </ThemedText>
-        </View>
+        </FadeInUp>
 
-        <Card style={styles.gaugeCard}>
-          <View style={styles.gaugeHead}>
-            <ThemedText type="smallBold">Monthly safe-to-spend tank</ThemedText>
-            <Pill
-              label={overBudget ? 'Empty' : onTrack ? 'Healthy' : 'Running low'}
-              tone={overBudget ? 'bad' : onTrack ? 'good' : 'info'}
+        <FadeInUp delay={80}>
+          <Card style={styles.gaugeCard}>
+            <View style={styles.gaugeHead}>
+              <ThemedText type="smallBold">Monthly safe-to-spend tank</ThemedText>
+              <Pill
+                label={overBudget ? 'Empty' : onTrack ? 'Healthy' : 'Running low'}
+                tone={overBudget ? 'bad' : onTrack ? 'good' : 'info'}
+              />
+            </View>
+            <FuelGauge
+              label={`${formatMoney(Math.max(0, safe.flexBudget - safe.flexSpent))} left`}
+              spent={safe.flexSpent}
+              capacity={safe.flexBudget}
+              detail={`${formatMoney(safe.flexSpent)} spent of ${formatMoney(safe.flexBudget)}`}
+              color={overBudget ? theme.danger : onTrack ? theme.primary : theme.warning}
+              formatValue={(value) => formatMoney(value)}
             />
-          </View>
-          <FuelGauge
-            label={`${formatMoney(Math.max(0, safe.flexBudget - safe.flexSpent))} left`}
-            spent={safe.flexSpent}
-            capacity={safe.flexBudget}
-            detail={`${formatMoney(safe.flexSpent)} spent of ${formatMoney(safe.flexBudget)}`}
-            color={overBudget ? theme.danger : onTrack ? theme.primary : theme.warning}
-            formatValue={(value) => formatMoney(value)}
-          />
-        </Card>
+          </Card>
+        </FadeInUp>
+
+        <FadeInUp delay={140}>
+          <PennyBriefing insights={view.insights} />
+        </FadeInUp>
 
         {view.nextBill ? (
-          <Card style={styles.stackCard}>
-            <View style={styles.stackRow}>
-              <View style={styles.stackCopy}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Next bill
-                </ThemedText>
-                <ThemedText type="smallBold" numberOfLines={2}>
-                  {view.nextBill.name} · {view.nextBillMonth} {view.nextBill.dueDay}
-                </ThemedText>
-              </View>
-              <ThemedText type="money" style={{ fontSize: 18 }}>
-                {formatMoney(view.nextBill.amount)}
-              </ThemedText>
-            </View>
-          </Card>
-        ) : null}
-
-        {view.goal ? (
-          <Pressable onPress={() => router.push('/budget')}>
+          <FadeInUp delay={200}>
             <Card style={styles.stackCard}>
               <View style={styles.stackRow}>
                 <View style={styles.stackCopy}>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Goal progress
+                    Next bill
                   </ThemedText>
                   <ThemedText type="smallBold" numberOfLines={2}>
-                    {view.goal.name} · arrival by {view.goalArrival}
+                    {view.nextBill.name} · {view.nextBillMonth} {view.nextBill.dueDay}
                   </ThemedText>
                 </View>
-                <Pill label={`${Math.round(view.goalProgress * 100)}%`} tone="cat" />
+                <ThemedText type="money" style={{ fontSize: 18 }}>
+                  {formatMoney(view.nextBill.amount)}
+                </ThemedText>
               </View>
-              <ProgressBar value={view.goalProgress} />
             </Card>
-          </Pressable>
+          </FadeInUp>
         ) : null}
 
-        <SpeechBubble expression={mascot}>{view.insight}</SpeechBubble>
+        {view.goal ? (
+          <FadeInUp delay={260}>
+            <Pressable onPress={() => router.push('/budget')}>
+              <Card style={styles.stackCard}>
+                <View style={styles.stackRow}>
+                  <View style={styles.stackCopy}>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Goal progress
+                    </ThemedText>
+                    <ThemedText type="smallBold" numberOfLines={2}>
+                      {view.goal.name} · arrival by {view.goalArrival}
+                    </ThemedText>
+                  </View>
+                  <Pill label={`${Math.round(view.goalProgress * 100)}%`} tone="cat" />
+                </View>
+                <ProgressBar value={view.goalProgress} />
+              </Card>
+            </Pressable>
+          </FadeInUp>
+        ) : null}
       </ScrollView>
     </Screen>
   );

@@ -248,6 +248,19 @@ export default function AccountScreen() {
           </Card>
 
           <Card>
+            <ThemedText type="smallBold">The Hangar</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Flight school for your finances — pilot rank, wings, and streaks earned from
+              real habits, not taps.
+            </ThemedText>
+            <View style={styles.actions}>
+              <PillButton tone="primary" onPress={() => router.push('/hangar')}>
+                Enter the Hangar
+              </PillButton>
+            </View>
+          </Card>
+
+          <Card>
             <ThemedText type="smallBold">Run setup again</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               Adding an account or starting fresh? Wizard Penny briefly returns. (“You rang?”)

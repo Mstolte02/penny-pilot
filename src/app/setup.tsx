@@ -1,9 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import type { ComponentProps } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
   Easing,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -16,12 +19,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, PennyBadge, PillButton, StepDots, ToggleChip } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Radius, Spacing, WizardColors } from '@/constants/theme';
-import { BUDGET_STYLE_KEY, SETUP_COMPLETE_KEY, wizardScript } from '@/constants/penny-voice';
-import { mobileBudgetPlan } from '@/data/personal-finance-template';
+import { BUDGET_STYLE_KEY, SETUP_COMPLETE_KEY, WIZARD_STATE_KEY, wizardScript } from '@/constants/penny-voice';
 import type { BudgetStyle, GoalKind, SetupPreferences } from '@/domain/finance';
-import { formatMoney } from '@/domain/mobile-finance';
+import { formatMoney, monthKey } from '@/domain/mobile-finance';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { authService, financeDataService } from '@/services';
+import { useFinance, type GoalPlan, type PlanLine } from '@/services/finance-store';
+import { importFailureNeedsRebuild, pickImportPreview } from '@/services/import-file';
+
+type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 const budgetStyles: { label: string; value: BudgetStyle; explainer: string }[] = [
   {
@@ -50,40 +56,64 @@ const budgetStyles: { label: string; value: BudgetStyle; explainer: string }[] =
   },
 ];
 
-// A broad starter set — everything stays editable here and on the Plan tab later.
-const starterCategories = [
-  'Essentials',
-  'Food',
-  'Transportation',
-  'Health',
-  'Daily Living',
-  'Subscriptions & Fun',
-  'Entertainment',
-  'Debt',
-  'Home',
-  'Travel',
-  'Pets',
-  'Kids & Family',
-  'Gifts & Holidays',
-  'Education',
-  'Personal Care',
-  'Insurance',
-  'Giving',
-  'Investing',
-  'Work',
-  'Miscellaneous',
+type CategoryTemplate = {
+  name: string;
+  icon: IoniconName;
+  subcategories: string[];
+};
+
+type PersonaTemplate = {
+  id: string;
+  label: string;
+  categories: string[];
+};
+
+type SetupGoalDraft = {
+  kind: GoalKind;
+  id?: string;
+  name: string;
+  current: string;
+  target: string;
+  monthlyTarget: string;
+  targetDate: string;
+  mode: 'track' | 'deadline';
+};
+
+const categoryTemplates: CategoryTemplate[] = [
+  { name: 'Housing', icon: 'home-outline', subcategories: ['Rent', 'Mortgage', 'Utilities', 'Insurance', 'Repairs'] },
+  { name: 'Transportation', icon: 'car-outline', subcategories: ['Gas', 'Maintenance', 'Insurance', 'Parking'] },
+  { name: 'Food and dining', icon: 'restaurant-outline', subcategories: ['Groceries', 'Dining out', 'Coffee / snacks', 'Meal kits'] },
+  { name: 'Shopping', icon: 'cart-outline', subcategories: ['Household', 'Clothing', 'Amazon / online', 'Personal care'] },
+  { name: 'Health', icon: 'heart-outline', subcategories: ['Medical', 'Dental', 'Prescriptions', 'Fitness'] },
+  { name: 'Entertainment', icon: 'tv-outline', subcategories: ['Streaming', 'Events', 'Games', 'Books'] },
+  { name: 'Travel', icon: 'airplane-outline', subcategories: ['Flights', 'Hotels', 'Rental car', 'Trips'] },
+  { name: 'Kids and family', icon: 'gift-outline', subcategories: ['Childcare', 'Activities', 'School', 'Family support'] },
+  { name: 'Debt', icon: 'card-outline', subcategories: ['Credit cards', 'Student loans', 'Personal loans', 'Extra payoff'] },
+  { name: 'Savings', icon: 'trending-up-outline', subcategories: ['Emergency fund', 'Home fund', 'Vacation', 'Investing'] },
+  { name: 'Education', icon: 'school-outline', subcategories: ['Tuition', 'Books', 'Supplies', 'Courses'] },
+  { name: 'Pets', icon: 'paw-outline', subcategories: ['Food', 'Vet', 'Grooming', 'Boarding'] },
+  { name: 'Giving', icon: 'leaf-outline', subcategories: ['Charity', 'Church', 'Gifts', 'Mutual aid'] },
 ];
-const goalTemplates: { label: string; value: GoalKind }[] = [
-  { label: 'Home', value: 'home' },
-  { label: 'Car', value: 'car' },
-  { label: 'Emergency fund', value: 'emergency-fund' },
-  { label: 'Vacation', value: 'vacation' },
-  { label: 'Loan payoff', value: 'loan-payoff' },
-  { label: 'Custom', value: 'custom' },
+
+const personas: PersonaTemplate[] = [
+  { id: 'starter', label: 'Simple starter', categories: ['Housing', 'Transportation', 'Food and dining', 'Shopping', 'Entertainment'] },
+  { id: 'student', label: 'Student', categories: ['Housing', 'Food and dining', 'Transportation', 'Education', 'Entertainment'] },
+  { id: 'family', label: 'Family', categories: ['Housing', 'Food and dining', 'Transportation', 'Kids and family', 'Health'] },
+  { id: 'homeowner', label: 'Homeowner', categories: ['Housing', 'Transportation', 'Food and dining', 'Health', 'Savings'] },
+  { id: 'debt-payoff', label: 'Debt payoff', categories: ['Housing', 'Food and dining', 'Transportation', 'Debt', 'Savings'] },
+];
+
+const goalTemplates: { label: string; value: GoalKind; defaults: Partial<GoalPlan> }[] = [
+  { label: 'Emergency fund', value: 'emergency-fund', defaults: { name: 'Emergency fund', mode: 'track' } },
+  { label: 'Home', value: 'home', defaults: { name: 'Home fund', mode: 'deadline' } },
+  { label: 'Car', value: 'car', defaults: { name: 'Car fund', mode: 'deadline' } },
+  { label: 'Vacation', value: 'vacation', defaults: { name: 'Vacation', mode: 'deadline' } },
+  { label: 'Loan payoff', value: 'loan-payoff', defaults: { name: 'Loan payoff', mode: 'deadline' } },
+  { label: 'Custom', value: 'custom', defaults: { name: '', mode: 'track' } },
 ];
 
 // Every wizard step is a spell; the last one is the costume change.
-const spells = ['Welcome', 'Summon', 'Sort', 'Reveal', 'Flight plan', 'Takeoff'];
+const spells = ['Welcome', 'Summon', 'Sort', 'Flight plan', 'Takeoff'];
 const TRANSFORM_STEP = spells.length - 1;
 
 const STAR_COUNT = 42;
@@ -122,12 +152,10 @@ function Starfield() {
   );
 }
 
-function detectedEnchantments() {
-  return mobileBudgetPlan.sections
-    .flatMap((section) => section.lines)
-    .filter((line) => line.type === 'fixed' && (line.monthly ?? 0) > 0 && line.name !== 'Fun Money')
-    .map((line) => ({ name: line.name, monthly: line.monthly ?? 0 }))
-    .sort((a, b) => b.monthly - a.monthly);
+function monthInputAfter(startMonth: string, count: number) {
+  const [year, monthNumber] = startMonth.split('-').map(Number);
+  const date = new Date(year, monthNumber - 1 + count, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function getSetupErrorMessage(error: unknown) {
@@ -139,21 +167,39 @@ function getSetupErrorMessage(error: unknown) {
 export default function SetupScreen() {
   const router = useRouter();
   const reducedMotion = useReducedMotion();
+  const {
+    transactions: storeTransactions,
+    addTransactions,
+    guessCategory,
+    setPlanLines,
+    goals,
+    setGoals,
+  } = useFinance();
   const [step, setStep] = useState(0);
   const [rerun, setRerun] = useState(false);
   const [budgetStyle, setBudgetStyle] = useState<BudgetStyle>('guided-flexible');
   const [styleInfo, setStyleInfo] = useState<BudgetStyle | null>(null);
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [customCategoryText, setCustomCategoryText] = useState('');
-  const [selectedCategories, setSelectedCategories] = useState(() => starterCategories.slice(0, 9));
-  const [selectedGoals, setSelectedGoals] = useState<GoalKind[]>(['home', 'emergency-fund']);
+  const [persona, setPersona] = useState(personas[0].id);
+  const [selectedCategories, setSelectedCategories] = useState(() => personas[0].categories);
+  const [selectedSubcategories, setSelectedSubcategories] = useState<Record<string, string[]>>(() =>
+    Object.fromEntries(
+      personas[0].categories.map((name) => [
+        name,
+        categoryTemplates.find((category) => category.name === name)?.subcategories.slice(0, 3) ?? [],
+      ])
+    )
+  );
+  const [customSubcategory, setCustomSubcategory] = useState<{ category: string; value: string } | null>(null);
+  const [goalEditor, setGoalEditor] = useState<SetupGoalDraft | null>(null);
   const [syncIntent, setSyncIntent] = useState<'now' | 'later'>('later');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSummary, setImportSummary] = useState<string | null>(null);
   const [transform] = useState(() => new Animated.Value(0));
-
-  const enchantments = useMemo(() => detectedEnchantments(), []);
-  const enchantmentBurn = enchantments.reduce((sum, item) => sum + item.monthly, 0);
 
   useEffect(() => {
     AsyncStorage.getItem(SETUP_COMPLETE_KEY)
@@ -161,15 +207,80 @@ export default function SetupScreen() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    AsyncStorage.getItem(WIZARD_STATE_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as Partial<{
+          step: number;
+          budgetStyle: BudgetStyle;
+          persona: string;
+          selectedCategories: string[];
+          selectedSubcategories: Record<string, string[]>;
+          syncIntent: 'now' | 'later';
+        }>;
+        if (typeof parsed.step === 'number') setStep(Math.min(parsed.step, TRANSFORM_STEP - 1));
+        if (parsed.budgetStyle) setBudgetStyle(parsed.budgetStyle);
+        if (parsed.persona) setPersona(parsed.persona);
+        if (parsed.selectedCategories?.length) setSelectedCategories(parsed.selectedCategories);
+        if (parsed.selectedSubcategories) setSelectedSubcategories(parsed.selectedSubcategories);
+        if (parsed.syncIntent) setSyncIntent(parsed.syncIntent);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (step === TRANSFORM_STEP) return;
+    AsyncStorage.setItem(
+      WIZARD_STATE_KEY,
+      JSON.stringify({ step, budgetStyle, persona, selectedCategories, selectedSubcategories, syncIntent })
+    ).catch(() => {});
+  }, [budgetStyle, persona, selectedCategories, selectedSubcategories, step, syncIntent]);
+
+  const applyPersona = (id: string) => {
+    const nextPersona = personas.find((entry) => entry.id === id) ?? personas[0];
+    setPersona(nextPersona.id);
+    setSelectedCategories(nextPersona.categories);
+    setSelectedSubcategories((current) => {
+      const next: Record<string, string[]> = {};
+      for (const name of nextPersona.categories) {
+        next[name] =
+          current[name] ??
+          categoryTemplates.find((category) => category.name === name)?.subcategories.slice(0, 3) ??
+          [];
+      }
+      return next;
+    });
+  };
+
   const toggleCategory = (name: string) =>
-    setSelectedCategories((current) =>
-      current.includes(name) ? current.filter((item) => item !== name) : [...current, name]
-    );
+    setSelectedCategories((current) => {
+      if (current.includes(name)) return current.filter((item) => item !== name);
+      setSelectedSubcategories((subcategories) => ({
+        ...subcategories,
+        [name]:
+          subcategories[name] ??
+          categoryTemplates.find((category) => category.name === name)?.subcategories.slice(0, 3) ??
+          [],
+      }));
+      return [...current, name];
+    });
+
+  const toggleSubcategory = (category: string, subcategory: string) =>
+    setSelectedSubcategories((current) => {
+      const packed = current[category] ?? [];
+      return {
+        ...current,
+        [category]: packed.includes(subcategory)
+          ? packed.filter((item) => item !== subcategory)
+          : [...packed, subcategory],
+      };
+    });
 
   const addCustomCategory = () => {
     const name = customCategoryText.trim();
     if (!name) return;
-    const exists = [...starterCategories, ...customCategories].some(
+    const exists = [...categoryTemplates.map((category) => category.name), ...customCategories].some(
       (item) => item.toLowerCase() === name.toLowerCase()
     );
     if (!exists) {
@@ -179,10 +290,125 @@ export default function SetupScreen() {
     setCustomCategoryText('');
   };
 
-  const toggleGoal = (name: GoalKind) =>
-    setSelectedGoals((current) =>
-      current.includes(name) ? current.filter((item) => item !== name) : [...current, name]
+  const openGoalTemplate = (kind: GoalKind, existing?: GoalPlan) => {
+    const template = goalTemplates.find((goal) => goal.value === kind) ?? goalTemplates[goalTemplates.length - 1];
+    setGoalEditor({
+      kind,
+      id: existing?.id,
+      name: existing?.name ?? template.defaults.name ?? '',
+      current: existing ? String(existing.current) : '',
+      target: existing ? String(existing.target) : '',
+      monthlyTarget: existing ? String(existing.monthlyTarget) : '',
+      targetDate: existing?.targetDate ?? monthInputAfter(new Date().toISOString().slice(0, 7), 12),
+      mode: existing?.mode ?? template.defaults.mode ?? 'track',
+    });
+  };
+
+  const saveGoalEditor = () => {
+    if (!goalEditor) return;
+    const id = goalEditor.id ?? `goal-${goalEditor.kind}-${Date.now()}`;
+    const next: GoalPlan = {
+      id,
+      name: goalEditor.name.trim() || 'Untitled goal',
+      target: Number(goalEditor.target.replace(/[^0-9.]/g, '')) || 0,
+      current: Number(goalEditor.current.replace(/[^0-9.]/g, '')) || 0,
+      monthlyTarget: Number(goalEditor.monthlyTarget.replace(/[^0-9.]/g, '')) || 0,
+      targetDate: goalEditor.targetDate,
+      mode: goalEditor.mode,
+    };
+    setGoals((current) =>
+      current.some((goal) => goal.id === id)
+        ? current.map((goal) => (goal.id === id ? next : goal))
+        : [...current, next]
     );
+    setGoalEditor(null);
+  };
+
+  const buildWizardPlanLines = (): PlanLine[] => {
+    const months = Array.from(
+      new Set(
+        storeTransactions
+          .filter((transaction) => transaction.type === 'expense')
+          .map((transaction) => monthKey(transaction.date))
+      )
+    );
+    const divisor = Math.max(months.length, 1);
+    const normalize = (value: string | null | undefined) =>
+      (value ?? '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+    const amountFor = (category: string, subcategory: string) => {
+      if (storeTransactions.length === 0) return 0;
+      const categoryKey = normalize(category);
+      const subcategoryKey = normalize(subcategory);
+      const total = storeTransactions
+        .filter((transaction) => {
+          if (transaction.type !== 'expense') return false;
+          const transactionCategory = normalize(transaction.category);
+          const transactionSubcategory = normalize(transaction.subcategory);
+          return (
+            transactionCategory === categoryKey ||
+            transactionCategory.includes(categoryKey) ||
+            categoryKey.includes(transactionCategory) ||
+            transactionSubcategory === subcategoryKey ||
+            transactionSubcategory.includes(subcategoryKey) ||
+            subcategoryKey.includes(transactionSubcategory)
+          );
+        })
+        .reduce((sum, transaction) => sum + transaction.moneyOut, 0);
+      return Math.round(total / divisor);
+    };
+
+    return selectedCategories.flatMap((category) => {
+      const subcategories = selectedSubcategories[category]?.length
+        ? selectedSubcategories[category]
+        : ['General'];
+      return subcategories.map((subcategory) => ({
+        id: `${category}::${subcategory}`,
+        section: category,
+        name: subcategory,
+        type: category === 'Housing' || category === 'Debt' ? ('fixed' as const) : ('flexible' as const),
+        amount: amountFor(category, subcategory),
+        method: 'avg6' as const,
+        match: [[category, subcategory]] as [string, string][],
+      }));
+    });
+  };
+
+  const importBankFile = async () => {
+    setImporting(true);
+    setImportError(null);
+    setImportSummary(null);
+    try {
+      const preview = await pickImportPreview(storeTransactions, guessCategory);
+      if (!preview) return;
+      if ('error' in preview) {
+        setImportError(preview.error);
+        return;
+      }
+      if (preview.total === 0) {
+        setImportError(
+          preview.duplicates > 0
+            ? 'Every row in that file is already imported.'
+            : 'No readable transactions found in that file.'
+        );
+        return;
+      }
+      addTransactions(preview.transactions);
+      setSyncIntent('later');
+      setImportSummary(
+        `${preview.total} transactions imported` +
+          (preview.duplicates > 0 ? ` · ${preview.duplicates} duplicates skipped` : '') +
+          (preview.uncategorized > 0 ? ` · ${preview.uncategorized} need a category later` : '')
+      );
+    } catch (error) {
+      if (importFailureNeedsRebuild(error)) {
+        setImportError('This app build is missing the file picker — install the newest development build and try again.');
+      } else {
+        setImportError('Could not read that file. Make sure it is a CSV or Excel export from your bank.');
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const approveFlightPlan = async () => {
     setSaving(true);
@@ -197,7 +423,7 @@ export default function SetupScreen() {
           selectedCategoryTemplateIds: selectedCategories.map((category) =>
             category.toLowerCase().replaceAll(' ', '-')
           ),
-          selectedGoalKinds: selectedGoals,
+          selectedGoalKinds: goals.map(() => 'custom' as GoalKind),
           guidanceTone: 'balanced',
           bankSyncIntent: syncIntent,
           completedAt: new Date().toISOString(),
@@ -212,7 +438,10 @@ export default function SetupScreen() {
       await AsyncStorage.setItem(SETUP_COMPLETE_KEY, new Date().toISOString());
       // The Plan tab reads this to shape the budget around the chosen style.
       await AsyncStorage.setItem(BUDGET_STYLE_KEY, budgetStyle);
+      await AsyncStorage.removeItem(WIZARD_STATE_KEY);
     } catch {}
+
+    setPlanLines(buildWizardPlanLines());
 
     setSaving(false);
     setStep(TRANSFORM_STEP);
@@ -302,6 +531,26 @@ export default function SetupScreen() {
                     onPress={() => setSyncIntent('later')}
                   />
                 </View>
+                {syncIntent === 'later' ? (
+                  <View style={styles.importPanel}>
+                    <PillButton tone="primary" disabled={importing} onPress={() => void importBankFile()}>
+                      {importing ? 'Reading file…' : 'Import bank file'}
+                    </PillButton>
+                    <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>
+                      CSV, XLS, and XLSX exports stay on this device.
+                    </ThemedText>
+                    {importSummary ? (
+                      <ThemedText type="smallBold" style={{ color: WizardColors.primary }}>
+                        {importSummary}
+                      </ThemedText>
+                    ) : null}
+                    {importError ? (
+                      <ThemedText type="small" style={{ color: WizardColors.warning }}>
+                        {importError}
+                      </ThemedText>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             )}
 
@@ -311,17 +560,29 @@ export default function SetupScreen() {
                   {wizardScript.sort}
                 </ThemedText>
                 <ThemedText style={{ color: WizardColors.textSecondary }}>
-                  Penny waves the wand over the imported pile and sorts it into these. Keep the
-                  ones that fit your life, add your own — everything stays editable on the Plan
-                  tab later.
+                  Start with a preset, then pack only the categories and subcategories that belong
+                  in your budget. This saves as you go.
                 </ThemedText>
                 <View style={styles.chips}>
-                  {[...starterCategories, ...customCategories].map((name) => (
+                  {personas.map((preset) => (
                     <ToggleChip
-                      key={name}
-                      label={name}
-                      selected={selectedCategories.includes(name)}
-                      onPress={() => toggleCategory(name)}
+                      key={preset.id}
+                      label={preset.label}
+                      selected={persona === preset.id}
+                      onPress={() => applyPersona(preset.id)}
+                    />
+                  ))}
+                </View>
+                <View style={styles.categoryGrid}>
+                  {[...categoryTemplates, ...customCategories.map((name) => ({ name, icon: 'add-circle-outline' as IoniconName, subcategories: ['General'] }))].map((category) => (
+                    <CategoryPackCard
+                      key={category.name}
+                      category={category}
+                      selected={selectedCategories.includes(category.name)}
+                      selectedSubcategories={selectedSubcategories[category.name] ?? []}
+                      onToggle={() => toggleCategory(category.name)}
+                      onToggleSubcategory={(subcategory) => toggleSubcategory(category.name, subcategory)}
+                      onAddCustom={() => setCustomSubcategory({ category: category.name, value: '' })}
                     />
                   ))}
                 </View>
@@ -346,46 +607,13 @@ export default function SetupScreen() {
                   </PillButton>
                 </View>
                 <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>
-                  {selectedCategories.length} categories selected.
+                  {selectedCategories.length} categories packed ·{' '}
+                  {Object.values(selectedSubcategories).reduce((sum, items) => sum + items.length, 0)} subcategories.
                 </ThemedText>
               </View>
             )}
 
             {step === 3 && (
-              <View style={styles.stepBody}>
-                <ThemedText type="section" style={{ color: WizardColors.text }}>
-                  {wizardScript.reveal}
-                </ThemedText>
-                <ThemedText style={{ color: WizardColors.textSecondary }}>
-                  Recurring charges hiding in your transactions — the subscriptions people forget
-                  they have. Penny found these:
-                </ThemedText>
-                <View style={styles.enchantList}>
-                  {enchantments.slice(0, 5).map((item) => (
-                    <View key={item.name} style={styles.enchantRow}>
-                      <ThemedText type="smallBold" style={{ color: WizardColors.accent }}>
-                        ✦
-                      </ThemedText>
-                      <ThemedText
-                        type="smallBold"
-                        numberOfLines={1}
-                        style={[styles.enchantName, { color: WizardColors.text }]}>
-                        {item.name}
-                      </ThemedText>
-                      <ThemedText type="money" style={{ color: WizardColors.text }}>
-                        {formatMoney(item.monthly)}/mo
-                      </ThemedText>
-                    </View>
-                  ))}
-                </View>
-                <ThemedText type="smallBold" style={{ color: WizardColors.primary }}>
-                  {formatMoney(enchantmentBurn)}/mo of enchantments — tracked on the Subscriptions
-                  page of the Transactions tab.
-                </ThemedText>
-              </View>
-            )}
-
-            {step === 4 && (
               <View style={styles.stepBody}>
                 <ThemedText type="section" style={{ color: WizardColors.text }}>
                   {wizardScript.flightPlan}
@@ -416,9 +644,12 @@ export default function SetupScreen() {
                         </Pressable>
                       </View>
                       {styleInfo === style.value ? (
-                        <ThemedText type="small" style={[styles.styleExplainer, { color: WizardColors.textSecondary }]}>
-                          {style.explainer}
-                        </ThemedText>
+                        <View style={styles.styleExplainer}>
+                          <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>
+                            {style.explainer}
+                          </ThemedText>
+                          <BudgetStylePreview styleValue={style.value} />
+                        </View>
                       ) : null}
                     </View>
                   ))}
@@ -426,16 +657,41 @@ export default function SetupScreen() {
                 <ThemedText type="smallBold" style={{ color: WizardColors.text }}>
                   Destinations (your goals)
                 </ThemedText>
+                <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>
+                  Tap one to set the actual amount, current balance, monthly plan, and need-by date.
+                </ThemedText>
                 <View style={styles.chips}>
                   {goalTemplates.map((goal) => (
                     <ToggleChip
                       key={goal.value}
                       label={goal.label}
-                      selected={selectedGoals.includes(goal.value)}
-                      onPress={() => toggleGoal(goal.value)}
+                      selected={goals.some((entry) => entry.name.toLowerCase().includes(goal.label.toLowerCase().split(' ')[0]))}
+                      onPress={() => openGoalTemplate(goal.value)}
                     />
                   ))}
                 </View>
+                {goals.length > 0 ? (
+                  <View style={styles.goalList}>
+                    {goals.map((goal) => (
+                      <Pressable
+                        key={goal.id}
+                        onPress={() => openGoalTemplate('custom', goal)}
+                        style={[styles.goalRow, { borderColor: WizardColors.border }]}>
+                        <View style={styles.goalCopy}>
+                          <ThemedText type="smallBold" style={{ color: WizardColors.text }} numberOfLines={1}>
+                            {goal.name}
+                          </ThemedText>
+                          <ThemedText type="small" style={{ color: WizardColors.textSecondary }} numberOfLines={1}>
+                            {formatMoney(goal.current)} of {formatMoney(goal.target)} · {formatMoney(goal.monthlyTarget)}/mo
+                          </ThemedText>
+                        </View>
+                        <ThemedText type="smallBold" style={{ color: WizardColors.accent }}>
+                          Edit
+                        </ThemedText>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
                 {saveError ? (
                   <ThemedText type="small" style={{ color: WizardColors.warning }}>
                     {saveError}
@@ -523,8 +779,249 @@ export default function SetupScreen() {
               )}
             </View>
           </Card>
+          <GoalSetupModal
+            draft={goalEditor}
+            onChange={setGoalEditor}
+            onClose={() => setGoalEditor(null)}
+            onSave={saveGoalEditor}
+          />
+          <Modal
+            visible={customSubcategory !== null}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setCustomSubcategory(null)}>
+            <View style={styles.modalOverlay}>
+              <View style={[styles.goalSheet, { backgroundColor: WizardColors.backgroundElement, borderColor: WizardColors.borderStrong }]}>
+                <ThemedText type="section" style={{ color: WizardColors.text }}>
+                  Add subcategory
+                </ThemedText>
+                <WizardField
+                  label={customSubcategory?.category ?? 'Category'}
+                  value={customSubcategory?.value ?? ''}
+                  onChangeText={(value) =>
+                    setCustomSubcategory((current) => (current ? { ...current, value } : current))
+                  }
+                  placeholder="e.g. Golf"
+                />
+                <View style={styles.controls}>
+                  <PillButton
+                    tone="primary"
+                    onPress={() => {
+                      if (!customSubcategory?.value.trim()) return;
+                      toggleSubcategory(customSubcategory.category, customSubcategory.value.trim());
+                      setCustomSubcategory(null);
+                    }}>
+                    Add
+                  </PillButton>
+                  <PillButton onPress={() => setCustomSubcategory(null)}>Cancel</PillButton>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </SafeAreaView>
       </ScrollView>
+    </View>
+  );
+}
+
+function CategoryPackCard({
+  category,
+  selected,
+  selectedSubcategories,
+  onToggle,
+  onToggleSubcategory,
+  onAddCustom,
+}: {
+  category: CategoryTemplate;
+  selected: boolean;
+  selectedSubcategories: string[];
+  onToggle: () => void;
+  onToggleSubcategory: (subcategory: string) => void;
+  onAddCustom: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onToggle}
+      style={({ pressed }) => [
+        styles.categoryCard,
+        {
+          borderColor: selected ? WizardColors.primary : WizardColors.border,
+          backgroundColor: selected ? WizardColors.backgroundSelected : WizardColors.backgroundElement,
+          opacity: pressed ? 0.78 : 1,
+        },
+      ]}>
+      <View style={styles.categoryTop}>
+        <Ionicons name={category.icon} size={24} color={WizardColors.textSecondary} />
+        <ThemedText type="smallBold" style={[styles.categoryTitle, { color: WizardColors.text }]} numberOfLines={1}>
+          {category.name}
+        </ThemedText>
+      </View>
+      {selected ? (
+        <View style={styles.subcategoryRow}>
+          {category.subcategories.slice(0, 4).map((subcategory) => (
+            <Pressable
+              key={subcategory}
+              onPress={(event) => {
+                event.stopPropagation();
+                onToggleSubcategory(subcategory);
+              }}
+              style={[
+                styles.subcategoryChip,
+                {
+                  borderColor: selectedSubcategories.includes(subcategory)
+                    ? WizardColors.primary
+                    : WizardColors.border,
+                },
+              ]}>
+              <ThemedText type="small" style={{ color: WizardColors.text }} numberOfLines={1}>
+                {subcategory}
+              </ThemedText>
+            </Pressable>
+          ))}
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation();
+              onAddCustom();
+            }}
+            style={[styles.subcategoryChip, { borderColor: WizardColors.accent }]}>
+            <ThemedText type="small" style={{ color: WizardColors.accent }} numberOfLines={1}>
+              + custom
+            </ThemedText>
+          </Pressable>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function BudgetStylePreview({ styleValue }: { styleValue: BudgetStyle }) {
+  if (styleValue === 'fifty-thirty-twenty') {
+    return (
+      <View style={styles.previewStack}>
+        {[
+          ['Needs · 50%', 'housing, transportation, groceries'],
+          ['Wants · 30%', 'dining out, shopping, entertainment'],
+          ['Savings and debt · 20%', 'emergency fund, payoff'],
+        ].map(([title, detail]) => (
+          <View key={title} style={styles.previewBlock}>
+            <ThemedText type="smallBold" style={{ color: WizardColors.text }}>{title}</ThemedText>
+            <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>{detail}</ThemedText>
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  if (styleValue === 'zero-based') {
+    return (
+      <View style={styles.previewStack}>
+        <View style={[styles.previewBlock, { borderColor: WizardColors.accent }]}>
+          <ThemedText type="smallBold" style={{ color: WizardColors.accent }}>To be assigned</ThemedText>
+        </View>
+        {['housing', 'groceries', 'transportation', 'fun money'].map((name) => (
+          <View key={name} style={styles.previewRow}>
+            <ThemedText type="smallBold" style={{ color: WizardColors.text }}>{name}</ThemedText>
+            <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>$0</ThemedText>
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  if (styleValue === 'envelopes') {
+    return (
+      <View style={styles.previewEnvelopeGrid}>
+        {['groceries', 'dining out', 'gas', 'fun money'].map((name) => (
+          <View key={name} style={styles.previewEnvelope}>
+            <ThemedText type="smallBold" style={{ color: WizardColors.text }}>{name}</ThemedText>
+            <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>left this month</ThemedText>
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.previewBlock}>
+      <ThemedText type="smallBold" style={{ color: WizardColors.text }}>Flexible lines tune from history</ThemedText>
+      <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>Fixed bills stay fixed; variable lines learn over time.</ThemedText>
+    </View>
+  );
+}
+
+function GoalSetupModal({
+  draft,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  draft: SetupGoalDraft | null;
+  onChange: (draft: SetupGoalDraft | null) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const update = (patch: Partial<NonNullable<typeof draft>>) => {
+    if (!draft) return;
+    onChange({ ...draft, ...patch });
+  };
+
+  return (
+    <Modal visible={draft !== null} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.goalSheet, { backgroundColor: WizardColors.backgroundElement, borderColor: WizardColors.borderStrong }]}>
+          <ThemedText type="section" style={{ color: WizardColors.text }}>
+            Set up your goal
+          </ThemedText>
+          <WizardField label="Name" value={draft?.name ?? ''} onChangeText={(value) => update({ name: value })} />
+          <WizardField label="Current saved" value={draft?.current ?? ''} onChangeText={(value) => update({ current: value })} keyboardType="numeric" />
+          <WizardField label="Goal amount" value={draft?.target ?? ''} onChangeText={(value) => update({ target: value })} keyboardType="numeric" />
+          <WizardField label="Monthly plan" value={draft?.monthlyTarget ?? ''} onChangeText={(value) => update({ monthlyTarget: value })} keyboardType="numeric" />
+          <WizardField label="Need-by month" value={draft?.targetDate ?? ''} onChangeText={(value) => update({ targetDate: value })} placeholder="YYYY-MM" />
+          <View style={styles.chips}>
+            <ToggleChip label="Track arrival" selected={draft?.mode === 'track'} onPress={() => update({ mode: 'track' })} />
+            <ToggleChip label="Need by date" selected={draft?.mode === 'deadline'} onPress={() => update({ mode: 'deadline' })} />
+          </View>
+          <View style={styles.controls}>
+            <PillButton tone="primary" onPress={onSave}>Save goal</PillButton>
+            <PillButton onPress={onClose}>Cancel</PillButton>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function WizardField({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  keyboardType?: 'default' | 'numeric';
+}) {
+  return (
+    <View style={styles.editorField}>
+      <ThemedText type="smallBold" style={{ color: WizardColors.text }}>{label}</ThemedText>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={WizardColors.textSecondary}
+        keyboardType={keyboardType}
+        style={[
+          styles.customInput,
+          {
+            borderColor: WizardColors.border,
+            color: WizardColors.text,
+            backgroundColor: WizardColors.background,
+          },
+        ]}
+      />
     </View>
   );
 }
@@ -590,6 +1087,41 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     fontSize: 15,
   },
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  categoryCard: {
+    width: '48%',
+    minHeight: 118,
+    borderWidth: 1.5,
+    borderRadius: Radius.card,
+    padding: Spacing.three,
+    gap: Spacing.two,
+  },
+  categoryTop: {
+    gap: Spacing.one,
+  },
+  categoryTitle: {
+    fontSize: 15,
+  },
+  subcategoryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.one,
+  },
+  subcategoryChip: {
+    maxWidth: '100%',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 4,
+  },
+  importPanel: {
+    gap: Spacing.two,
+    alignItems: 'flex-start',
+  },
   styleList: {
     gap: Spacing.two,
   },
@@ -609,6 +1141,60 @@ const styles = StyleSheet.create({
   styleExplainer: {
     paddingTop: Spacing.one,
     paddingLeft: Spacing.two,
+    gap: Spacing.two,
+  },
+  previewStack: {
+    gap: Spacing.two,
+  },
+  previewBlock: {
+    borderWidth: 1,
+    borderColor: WizardColors.border,
+    borderRadius: Radius.control,
+    padding: Spacing.two,
+    gap: 2,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    borderTopWidth: 1,
+    borderTopColor: WizardColors.border,
+    paddingTop: Spacing.one,
+  },
+  previewEnvelopeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  previewEnvelope: {
+    width: '47%',
+    borderWidth: 1,
+    borderColor: WizardColors.border,
+    borderRadius: Radius.control,
+    padding: Spacing.two,
+    gap: 2,
+  },
+  emptyReveal: {
+    borderWidth: 1,
+    borderRadius: Radius.control,
+    padding: Spacing.three,
+    gap: Spacing.one,
+  },
+  goalList: {
+    gap: Spacing.two,
+  },
+  goalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderWidth: 1,
+    borderRadius: Radius.control,
+    padding: Spacing.two,
+  },
+  goalCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   enchantList: {
     gap: Spacing.two,
@@ -649,6 +1235,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(18, 13, 28, 0.62)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.three,
+  },
+  goalSheet: {
+    width: '100%',
+    maxWidth: 520,
+    borderWidth: 1,
+    borderRadius: Radius.card + 6,
+    padding: Spacing.four,
+    gap: Spacing.three,
+  },
+  editorField: {
+    gap: Spacing.one,
   },
   backButton: {
     minHeight: 42,

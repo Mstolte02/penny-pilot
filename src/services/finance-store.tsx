@@ -8,11 +8,10 @@ import {
   type PropsWithChildren,
 } from 'react';
 
-import { mobileBudgetPlan, mobileSavingsConfig, mobileTransactions } from '@/data/personal-finance-template';
+import { mobileBudgetPlan } from '@/data/personal-finance-template';
 import {
   avgForecast,
   ewmaForecast,
-  homeGoalForecast,
   uniqueMonths,
   monthKey,
   type BudgetPlan,
@@ -169,10 +168,11 @@ export function planFromLines(lines: PlanLine[]): BudgetPlan {
 }
 
 function seedTransactions(): StoredTransaction[] {
-  return mobileTransactions.map((transaction) => ({ ...transaction, source: 'sample' }));
+  return [];
 }
 
 function seedPlanLines(transactions: MobileTransaction[]): PlanLine[] {
+  const hasHistory = transactions.some((transaction) => transaction.type === 'expense');
   return mobileBudgetPlan.sections.flatMap((section) =>
     section.lines.map<PlanLine>((line) => {
       const base: PlanLine = {
@@ -180,11 +180,11 @@ function seedPlanLines(transactions: MobileTransaction[]): PlanLine[] {
         section: section.title,
         name: line.name,
         type: line.type === 'fixed' ? 'fixed' : 'flexible',
-        amount: line.monthly ?? 0,
+        amount: 0,
         method: 'avg6',
         match: line.match,
       };
-      if (base.type === 'flexible') {
+      if (hasHistory) {
         base.amount = forecastLineAmount(base, base.method, transactions);
       }
       return base;
@@ -192,47 +192,101 @@ function seedPlanLines(transactions: MobileTransaction[]): PlanLine[] {
   );
 }
 
-function monthInputAfter(startDate: string, count: number) {
-  const [year, monthNumber] = startDate.split('-').map(Number);
-  const date = new Date(year, monthNumber - 1 + count, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
 function seedGoals(transactions: MobileTransaction[]): GoalPlan[] {
-  const home = homeGoalForecast({ transactions, savings: mobileSavingsConfig });
-  const transactionMonths = uniqueMonths(transactions);
-  const startMonth =
-    transactionMonths[transactionMonths.length - 1] ?? mobileSavingsConfig.asOfDate.slice(0, 7);
-
-  return [
-    {
-      id: 'home',
-      name: 'First home fund',
-      target: Math.round(home.cashNeeded),
-      current: Math.round(home.currentSavings),
-      monthlyTarget: mobileSavingsConfig.monthlySavingsTarget,
-      mode: 'track',
-      targetDate:
-        home.monthsToGoal === null
-          ? monthInputAfter(mobileSavingsConfig.asOfDate, 24)
-          : monthInputAfter(startMonth, home.monthsToGoal),
-    },
-  ];
+  void transactions;
+  return [];
 }
 
 function seedPlannedExpenses(): PlannedExpensePlan[] {
-  return mobileSavingsConfig.plannedExpenses.map((expense, index) => ({
-    id: `expense-${index}`,
-    name: expense.description,
-    date: expense.date,
-    amount: expense.amount,
-  }));
+  return [];
 }
 
 type Updater<T> = T | ((previous: T) => T);
 
 function resolveUpdater<T>(updater: Updater<T>, previous: T): T {
   return typeof updater === 'function' ? (updater as (value: T) => T)(previous) : updater;
+}
+
+function normalizeMerchantKey(item: string) {
+  return item
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/\b\d{1,2}\/\d{1,2}\b/g, ' ')
+    .replace(/\b\d{4,}\b/g, ' ')
+    .replace(/\b(ppd id|web id|transaction#):?\s*\S+/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(
+      /\b(inc|llc|co|corp|company|store|market|mktpl|www|com|bill|payment|sent|money|online|transfer|to|from|the)\b/g,
+      ' '
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const categoryRules: {
+  pattern: RegExp;
+  category: string;
+  subcategory: string | null;
+}[] = [
+  {
+    pattern: /\b(payroll|salary|direct deposit|ach credit|deposit)\b/i,
+    category: 'Income',
+    subcategory: null,
+  },
+  {
+    pattern: /\b(aldi|kroger|meijer|walmart|costco|sam'?s club|grocery)\b/i,
+    category: 'Food',
+    subcategory: 'Groceries',
+  },
+  {
+    pattern: /\b(wendy|mcdonald|pizza|restaurant|pancake|texas roadhouse|china wok|tst\*)\b/i,
+    category: 'Food',
+    subcategory: 'Dining Out',
+  },
+  {
+    pattern: /\b(vending|365 market|coffee|snack)\b/i,
+    category: 'Food',
+    subcategory: 'Snacks',
+  },
+  {
+    pattern: /\b(shell|speedway|bp|caseys|family express|gas|fuel)\b/i,
+    category: 'Essentials',
+    subcategory: 'Transportation: Gas',
+  },
+  {
+    pattern: /\b(progressive|auto insurance|insurance)\b/i,
+    category: 'Essentials',
+    subcategory: 'Auto Insurance',
+  },
+  {
+    pattern: /\b(discover|student loan|loan payment|e-payment)\b/i,
+    category: 'Debt',
+    subcategory: 'Personal Loans',
+  },
+  {
+    pattern: /\b(roku|netflix|hulu|spotify|apple\.com\/bill|apple com bill|fandango)\b/i,
+    category: 'Subscriptions & Fun',
+    subcategory: 'Streaming',
+  },
+  {
+    pattern: /\b(openai|chatgpt|vercel|squarespace|domain|cloud storage|icloud|google storage)\b/i,
+    category: 'Subscriptions & Fun',
+    subcategory: 'Software',
+  },
+  {
+    pattern: /\b(amazon|target|household)\b/i,
+    category: 'Daily Living',
+    subcategory: 'Household Consumables',
+  },
+  {
+    pattern: /\b(zelle|sofi|acct xfer|online transfer|quickpay|apple cash|cash app|venmo|paypal|savings|investment)\b/i,
+    category: 'Transfers',
+    subcategory: 'Transfers',
+  },
+];
+
+function guessFromRules(item: string) {
+  return categoryRules.find((rule) => rule.pattern.test(item)) ?? null;
 }
 
 type FinanceStore = {
@@ -299,12 +353,19 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       ]);
       if (!mounted) return;
 
-      const seededTransactions = storedTransactions ?? seedTransactions();
+      const seededTransactions = (storedTransactions ?? seedTransactions()).filter(
+        (transaction) => transaction.source !== 'sample'
+      );
+      const storedPersonalGoals =
+        storedGoals?.filter((goal) => !(goal.id === 'home' && goal.name === 'First home fund')) ??
+        null;
+      const storedPersonalExpenses =
+        storedPlannedExpenses?.filter((expense) => !expense.id.startsWith('expense-')) ?? null;
       setTransactionsState(seededTransactions);
       setPlanLinesState(storedPlanLines ?? seedPlanLines(seededTransactions));
       setAdjustmentsState(storedAdjustments ?? {});
-      setGoalsState(storedGoals ?? seedGoals(seededTransactions));
-      setPlannedExpensesState(storedPlannedExpenses ?? seedPlannedExpenses());
+      setGoalsState(storedPersonalGoals ?? seedGoals(seededTransactions));
+      setPlannedExpensesState(storedPersonalExpenses ?? seedPlannedExpenses());
       setCancelFlagsState(storedCancelFlags ?? {});
       setTransactionEditsState(storedEdits ?? {});
       setResolvedReviewIdsState(storedResolved ?? []);
@@ -359,7 +420,12 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       cancelFlags,
       transactionEdits,
       resolvedReviewIds,
-      addTransactions: (rows) => setTransactions((previous) => [...previous, ...rows]),
+      addTransactions: (rows) =>
+        setTransactions((previous) => {
+          const hasUserData = previous.some((transaction) => transaction.source !== 'sample');
+          const nextBase = hasUserData ? previous : previous.filter((transaction) => transaction.source !== 'sample');
+          return [...nextBase, ...rows];
+        }),
       updateTransaction: (id, patch) =>
         setTransactions((previous) =>
           previous.map((transaction) =>
@@ -396,11 +462,20 @@ export function FinanceProvider({ children }: PropsWithChildren) {
       },
       guessCategory: (item) => {
         const normalized = item.trim().toLowerCase();
+        const merchantKey = normalizeMerchantKey(item);
         if (!normalized) return null;
         const counts = new Map<string, { category: string; subcategory: string | null; count: number }>();
         for (const transaction of transactions) {
           if (transaction.type !== 'expense') continue;
-          if (transaction.item.trim().toLowerCase() !== normalized) continue;
+          const transactionKey = normalizeMerchantKey(transaction.item);
+          if (
+            transaction.item.trim().toLowerCase() !== normalized &&
+            transactionKey !== merchantKey &&
+            !transactionKey.includes(merchantKey) &&
+            !merchantKey.includes(transactionKey)
+          ) {
+            continue;
+          }
           const key = `${transaction.category}::${transaction.subcategory ?? ''}`;
           const entry =
             counts.get(key) ?? {
@@ -412,7 +487,10 @@ export function FinanceProvider({ children }: PropsWithChildren) {
           counts.set(key, entry);
         }
         const best = Array.from(counts.values()).sort((a, b) => b.count - a.count)[0];
-        return best ? { category: best.category, subcategory: best.subcategory } : null;
+        if (best) return { category: best.category, subcategory: best.subcategory };
+
+        const rule = guessFromRules(item);
+        return rule ? { category: rule.category, subcategory: rule.subcategory } : null;
       },
     };
   }, [

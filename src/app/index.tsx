@@ -175,23 +175,21 @@ export default function OverviewScreen() {
         </Card>
 
         {view.nextBill ? (
-          <Pressable onPress={() => router.push('/transactions')}>
-            <Card style={styles.stackCard}>
-              <View style={styles.stackRow}>
-                <View style={styles.stackCopy}>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Next bill
-                  </ThemedText>
-                  <ThemedText type="smallBold" numberOfLines={2}>
-                    {view.nextBill.name} · {view.nextBillMonth} {view.nextBill.dueDay}
-                  </ThemedText>
-                </View>
-                <ThemedText type="money" style={{ fontSize: 18 }}>
-                  {formatMoney(view.nextBill.amount)}
+          <Card style={styles.stackCard}>
+            <View style={styles.stackRow}>
+              <View style={styles.stackCopy}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Next bill
+                </ThemedText>
+                <ThemedText type="smallBold" numberOfLines={2}>
+                  {view.nextBill.name} · {view.nextBillMonth} {view.nextBill.dueDay}
                 </ThemedText>
               </View>
-            </Card>
-          </Pressable>
+              <ThemedText type="money" style={{ fontSize: 18 }}>
+                {formatMoney(view.nextBill.amount)}
+              </ThemedText>
+            </View>
+          </Card>
         ) : null}
 
         {view.goal ? (

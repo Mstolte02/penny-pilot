@@ -1,13 +1,21 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { LineChart } from '@/components/mini-charts';
 import {
   Card,
-  FuelGauge,
-  MonthTicker,
   PANEL_BOTTOM_INSET,
   PennyBadge,
   PillButton,
@@ -17,9 +25,10 @@ import {
   ToggleChip,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
-import { chartPalette, colorForCategory, Radius, Spacing } from '@/constants/theme';
+import { chartPalette, Radius, Spacing } from '@/constants/theme';
 import { BUDGET_STYLE_KEY } from '@/constants/penny-voice';
-import { mobileBudgetPlan, mobileSavingsConfig } from '@/data/personal-finance-template';
+import { iconForCategory } from '@/constants/category-icons';
+import { mobileSavingsConfig } from '@/data/personal-finance-template';
 import type { BudgetStyle } from '@/domain/finance';
 import {
   avgForecast,
@@ -33,7 +42,6 @@ import {
 import { useTheme } from '@/hooks/use-theme';
 import {
   forecastLineAmount,
-  lineMatchesTransaction,
   useFinance,
   type ForecastMethod,
   type GoalMode,
@@ -119,10 +127,6 @@ type PlannedExpenseDraft = {
   amount: string;
 };
 
-function shortMonth(month: string) {
-  return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
-}
-
 function monthInputAfter(startDate: string, count: number) {
   const [year, monthNumber] = startDate.split('-').map(Number);
   const date = new Date(year, monthNumber - 1 + count, 1);
@@ -145,6 +149,10 @@ function chooseSavingsProjectionPace(values: number[]) {
 
 function methodLabel(method: ForecastMethod) {
   return method === 'ewma' ? `EWMA α ${EWMA_ALPHA}` : `${method.replace('avg', '')}-mo average`;
+}
+
+function shortMonth(month: string) {
+  return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
 }
 
 export default function PlanScreen() {
@@ -172,6 +180,7 @@ export default function PlanScreen() {
   const [methodLineId, setMethodLineId] = useState<string | null>(null);
   const [addSection, setAddSection] = useState('Subscriptions & Fun');
   const [budgetStyle, setBudgetStyle] = useState<BudgetStyle>('guided-flexible');
+  const [styleGuideOpen, setStyleGuideOpen] = useState(false);
   const [categoryEditor, setCategoryEditor] = useState<
     { mode: 'add' } | { mode: 'edit'; original: string } | null
   >(null);
@@ -183,9 +192,6 @@ export default function PlanScreen() {
 
   const forecastFor = (line: PlanLine, method: ForecastMethod) =>
     forecastLineAmount(line, method, transactions);
-
-  const months = useMemo(() => uniqueMonths(transactions), [transactions]);
-  const [month, setMonth] = useState(() => months[months.length - 1] ?? '');
 
   // The style chosen in the setup wizard shapes this screen; changing it here
   // persists right back to the same place.
@@ -210,24 +216,30 @@ export default function PlanScreen() {
   };
 
   const sections = useMemo(() => {
-    const byTitle = new Map<string, { title: string; lines: PlanLine[]; capacity: number; spent: number }>();
+    const byTitle = new Map<string, { title: string; lines: PlanLine[]; capacity: number }>();
     for (const line of lines) {
       const entry =
-        byTitle.get(line.section) ?? { title: line.section, lines: [], capacity: 0, spent: 0 };
+        byTitle.get(line.section) ?? { title: line.section, lines: [], capacity: 0 };
       entry.lines.push(line);
       entry.capacity += line.amount;
-      entry.spent += transactions
-        .filter((transaction) => monthKey(transaction.date) === month && lineMatchesTransaction(transaction, line))
-        .reduce((sum, transaction) => sum + transaction.moneyOut, 0);
       byTitle.set(line.section, entry);
     }
     return Array.from(byTitle.values()).map((section) => ({
       ...section,
       capacity: Math.max(0, section.capacity + (adjustments[section.title] ?? 0)),
     }));
-  }, [lines, month, adjustments, transactions]);
+  }, [lines, adjustments]);
 
-  const monthlyIncome = mobileBudgetPlan.income.reduce((sum, income) => sum + income.monthly, 0);
+  const monthlyIncome = useMemo(() => {
+    const incomeByMonth = new Map<string, number>();
+    for (const transaction of transactions) {
+      if (transaction.type !== 'income') continue;
+      const key = monthKey(transaction.date);
+      incomeByMonth.set(key, (incomeByMonth.get(key) ?? 0) + transaction.moneyIn);
+    }
+    if (incomeByMonth.size === 0) return 0;
+    return Array.from(incomeByMonth.values()).reduce((sum, value) => sum + value, 0) / incomeByMonth.size;
+  }, [transactions]);
   const totalCapacity = sections.reduce((sum, section) => sum + section.capacity, 0);
   const savingsTarget = monthlyIncome - totalCapacity;
   const overCommitted = savingsTarget < 0;
@@ -268,11 +280,7 @@ export default function PlanScreen() {
     setLines((current) =>
       current.map((line) => {
         if (line.id !== id) return line;
-        const next = { ...line, ...patch };
-        if (next.type === 'flexible' && (patch.type === 'flexible' || patch.method)) {
-          next.amount = forecastFor(next, next.method);
-        }
-        return next;
+        return { ...line, ...patch };
       })
     );
 
@@ -433,7 +441,12 @@ export default function PlanScreen() {
         .filter((transaction) => monthKey(transaction.date) === m)
         .reduce(
           (sum, transaction) =>
-            sum + (transaction.type === 'income' ? transaction.moneyIn : -transaction.moneyOut),
+            sum +
+              (transaction.type === 'income'
+                ? transaction.moneyIn
+                : transaction.type === 'expense'
+                  ? -transaction.moneyOut
+                  : 0),
           0
         )
     );
@@ -506,7 +519,7 @@ export default function PlanScreen() {
     <Screen
       eyebrow="Plan"
       title="Plan"
-      subtitle="This month's budget and the goals beyond it"
+      subtitle="Your standing monthly plan and the goals beyond it"
       mascot={<PennyBadge expression={overCommitted ? 'concerned' : 'happy'} />}
       segments={SEGMENTS}
       active={active}
@@ -515,6 +528,8 @@ export default function PlanScreen() {
         <ScrollView
           style={styles.panel}
           contentContainerStyle={styles.body}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           {pendingAdd ? (
             <Card style={[styles.addCard, { borderColor: theme.primary }]}>
@@ -543,7 +558,7 @@ export default function PlanScreen() {
           ) : null}
 
           <View style={styles.topRow}>
-            <MonthTicker months={months} value={month} onChange={setMonth} formatLabel={shortMonth} />
+            <ThemedText type="smallBold">Planning amounts</ThemedText>
             <PillButton
               tone={moveMode ? 'primary' : 'quiet'}
               onPress={() => {
@@ -556,8 +571,10 @@ export default function PlanScreen() {
           </View>
 
           <ThemedText type="small" themeColor="textSecondary">
-            {formatMoney(monthlyIncome)} income · {formatMoney(totalCapacity)} budgeted ·{' '}
-            {formatMoney(Math.abs(savingsTarget))} {overCommitted ? 'over-committed' : 'toward goals'}
+            {formatMoney(totalCapacity)} planned monthly
+            {monthlyIncome > 0
+              ? ` · ${formatMoney(Math.max(0, savingsTarget))} unassigned from average income`
+              : ''}
           </ThemedText>
 
           <Card style={styles.styleCard}>
@@ -595,6 +612,27 @@ export default function PlanScreen() {
                   : `${formatMoney(monthlyIncome)} income − ${formatMoney(totalCapacity)} assigned − ${formatMoney(Math.max(0, savingsTarget))} to goals = $0 · every dollar has a job ✓`}
               </ThemedText>
             ) : null}
+          </Card>
+
+          <Card style={styles.styleCard}>
+            <Pressable
+              onPress={() => setStyleGuideOpen((value) => !value)}
+              style={styles.guideToggleRow}>
+              <ThemedText type="smallBold">Budget style guide</ThemedText>
+              <ThemedText type="smallBold" themeColor="textSecondary">
+                {styleGuideOpen ? '⌃' : '⌄'}
+              </ThemedText>
+            </Pressable>
+            {styleGuideOpen
+              ? BUDGET_STYLE_OPTIONS.map((option) => (
+                  <View key={option.value} style={[styles.guideRow, { borderTopColor: theme.border }]}>
+                    <ThemedText type="smallBold">{option.label}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {option.explainer}
+                    </ThemedText>
+                  </View>
+                ))
+              : null}
           </Card>
 
           {moveMode ? (
@@ -638,7 +676,17 @@ export default function PlanScreen() {
             </Card>
           ) : null}
 
-          {sections.map((section) => {
+          {budgetStyle !== 'guided-flexible' ? (
+            <StyledBudgetLayout
+              styleValue={budgetStyle}
+              sections={sections}
+              monthlyIncome={monthlyIncome}
+              savingsTarget={savingsTarget}
+              onUpdateLine={updateLine}
+            />
+          ) : null}
+
+          {budgetStyle === 'guided-flexible' ? sections.map((section) => {
             const selected = moveMode && (moveFrom === section.title || moveTo === section.title);
             return (
               <Pressable
@@ -658,13 +706,18 @@ export default function PlanScreen() {
                     styles.gaugeCard,
                     selected && { borderColor: theme.primary, borderWidth: 2 },
                   ])}>
-                  <FuelGauge
-                    label={section.title}
-                    spent={section.spent}
-                    capacity={section.capacity}
-                    color={colorForCategory(section.title)}
-                    formatValue={(value) => formatMoney(value)}
-                  />
+                  <View style={styles.planSectionHead}>
+                    <View style={[styles.categoryIconTile, { backgroundColor: theme.backgroundSelected }]}>
+                      <Ionicons name={iconForCategory(section.title)} size={18} color={theme.primary} />
+                    </View>
+                    <View style={styles.destinationCopy}>
+                      <ThemedText type="section">{section.title}</ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {section.lines.length} {section.lines.length === 1 ? 'line' : 'lines'}
+                      </ThemedText>
+                    </View>
+                    <ThemedText type="money">{formatMoney(section.capacity)}</ThemedText>
+                  </View>
                   {openSection === section.title && !moveMode ? (
                     <View style={styles.lineList}>
                       {section.lines.map((line) => (
@@ -683,18 +736,14 @@ export default function PlanScreen() {
                                 {line.type === 'fixed' ? 'Fixed amount' : methodLabel(line.method)}
                               </ThemedText>
                             </View>
-                            {line.type === 'fixed' ? (
-                              <TextInput
-                                value={String(Math.round(line.amount))}
-                                keyboardType="numeric"
-                                onChangeText={(value) =>
-                                  updateLine(line.id, { amount: Number(value.replace(/[^0-9.]/g, '')) || 0 })
-                                }
-                                style={[styles.amountInput, { borderColor: theme.border, color: theme.text }]}
-                              />
-                            ) : (
-                              <ThemedText type="money">{formatMoney(line.amount)}</ThemedText>
-                            )}
+                            <TextInput
+                              value={String(Math.round(line.amount))}
+                              keyboardType="numeric"
+                              onChangeText={(value) =>
+                                updateLine(line.id, { amount: Number(value.replace(/[^0-9.]/g, '')) || 0 })
+                              }
+                              style={[styles.amountInput, { borderColor: theme.border, color: theme.text }]}
+                            />
                             <Pressable
                               accessibilityLabel={`Delete ${line.name}`}
                               hitSlop={8}
@@ -740,7 +789,7 @@ export default function PlanScreen() {
                 </Card>
               </Pressable>
             );
-          })}
+          }) : null}
 
           <PillButton tone="primary" onPress={() => openCategoryEditor()}>
             + Add category
@@ -756,6 +805,8 @@ export default function PlanScreen() {
         <ScrollView
           style={styles.panel}
           contentContainerStyle={styles.body}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           <Card style={[styles.destinationCard, { borderColor: theme.info }]}>
             <View style={styles.destinationHead}>
@@ -955,38 +1006,47 @@ export default function PlanScreen() {
         transparent
         animationType="fade"
         onRequestClose={() => setCategoryEditor(null)}>
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.methodSheet,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
-            ]}>
-            <ThemedText type="section">
-              {categoryEditor?.mode === 'edit' ? 'Edit category' : 'Add category'}
-            </ThemedText>
-            <BudgetEditorField
-              label="Category name"
-              value={categoryName}
-              onChangeText={setCategoryName}
-              placeholder="e.g. Pets"
-            />
-            {categoryEditor?.mode === 'edit' ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                Renaming keeps every line and adjustment. Deleting removes the category and all of
-                its lines from the plan.
-              </ThemedText>
-            ) : null}
-            <View style={styles.addActions}>
-              <PillButton tone="primary" onPress={saveCategoryEditor}>
-                {categoryEditor?.mode === 'edit' ? 'Save name' : 'Create category'}
-              </PillButton>
-              {categoryEditor?.mode === 'edit' ? (
-                <PillButton onPress={deleteCategory}>Delete category</PillButton>
-              ) : null}
-              <PillButton onPress={() => setCategoryEditor(null)}>Cancel</PillButton>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalKeyboard}>
+          <View style={styles.modalOverlay}>
+            <View
+              style={[
+                styles.methodSheet,
+                { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
+              ]}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalScrollBody}>
+                <ThemedText type="section">
+                  {categoryEditor?.mode === 'edit' ? 'Edit category' : 'Add category'}
+                </ThemedText>
+                <BudgetEditorField
+                  label="Category name"
+                  value={categoryName}
+                  onChangeText={setCategoryName}
+                  placeholder="e.g. Pets"
+                />
+                {categoryEditor?.mode === 'edit' ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Renaming keeps every line and adjustment. Deleting removes the category and all
+                    of its lines from the plan.
+                  </ThemedText>
+                ) : null}
+                <View style={styles.addActions}>
+                  <PillButton tone="primary" onPress={saveCategoryEditor}>
+                    {categoryEditor?.mode === 'edit' ? 'Save name' : 'Create category'}
+                  </PillButton>
+                  {categoryEditor?.mode === 'edit' ? (
+                    <PillButton onPress={deleteCategory}>Delete category</PillButton>
+                  ) : null}
+                  <PillButton onPress={() => setCategoryEditor(null)}>Cancel</PillButton>
+                </View>
+              </ScrollView>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </Screen>
   );
@@ -1012,6 +1072,180 @@ function RuleRow({ label, actual, target }: { label: string; actual: number; tar
         {formatMoney(actual)} / {formatMoney(target)}
       </ThemedText>
     </View>
+  );
+}
+
+function StyledBudgetLayout({
+  styleValue,
+  sections,
+  monthlyIncome,
+  savingsTarget,
+  onUpdateLine,
+}: {
+  styleValue: BudgetStyle;
+  sections: { title: string; lines: PlanLine[]; capacity: number }[];
+  monthlyIncome: number;
+  savingsTarget: number;
+  onUpdateLine: (id: string, patch: Partial<PlanLine>) => void;
+}) {
+  const theme = useTheme();
+  const needs = sections.filter((section) => NEEDS_SECTIONS.has(section.title));
+  const wants = sections.filter((section) => !NEEDS_SECTIONS.has(section.title) && section.title !== 'Savings');
+  const savings = sections.filter((section) => section.title === 'Savings' || section.title === 'Debt');
+
+  if (styleValue === 'fifty-thirty-twenty') {
+    const rows = [
+      { label: 'Needs · 50%', target: monthlyIncome * 0.5, sections: needs },
+      { label: 'Wants · 30%', target: monthlyIncome * 0.3, sections: wants },
+      { label: 'Savings and debt · 20%', target: monthlyIncome * 0.2, sections: savings },
+    ];
+    return (
+      <View style={styles.styleLayout}>
+        {rows.map((row) => {
+          const planned = row.sections.reduce((sum, section) => sum + section.capacity, 0);
+          return (
+            <Card key={row.label} style={styles.ruleCard}>
+              <View style={styles.styleLayoutHead}>
+                <ThemedText type="section" style={styles.styleLayoutTitle} numberOfLines={1}>
+                  {row.label}
+                </ThemedText>
+                <ThemedText
+                  type="money"
+                  style={styles.styleLayoutAmount}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.55}>
+                  {formatMoney(planned)} / {formatMoney(row.target || planned)}
+                </ThemedText>
+              </View>
+              <ProgressBar value={(row.target || planned) > 0 ? planned / (row.target || planned) : 0} />
+              <View style={styles.styleLineList}>
+                {row.sections.flatMap((section) =>
+                  section.lines.map((line) => (
+                    <StyleLineAmountRow
+                      key={line.id}
+                      line={line}
+                      sectionLabel={section.title}
+                      onUpdateLine={onUpdateLine}
+                    />
+                  ))
+                )}
+              </View>
+            </Card>
+          );
+        })}
+      </View>
+    );
+  }
+
+  if (styleValue === 'zero-based') {
+    const assigned = sections.reduce((sum, section) => sum + section.capacity, 0);
+    const toAssign = monthlyIncome - assigned;
+    return (
+      <Card style={styles.zeroCard}>
+        <View style={[styles.zeroAssign, { backgroundColor: theme.backgroundSelected }]}>
+          <ThemedText type="smallBold" style={{ color: theme.warning }}>To be assigned</ThemedText>
+          <ThemedText type="money" style={{ color: theme.warning }}>{formatMoney(toAssign)}</ThemedText>
+        </View>
+        {sections.flatMap((section) => section.lines).slice(0, 12).map((line) => {
+          return (
+            <View key={line.id} style={[styles.zeroRow, { borderTopColor: theme.border }]}>
+              <View style={styles.destinationCopy}>
+                <ThemedText type="smallBold" numberOfLines={1}>{line.name}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                  {line.section}
+                </ThemedText>
+              </View>
+              <BudgetAmountInput
+                value={line.amount}
+                onChange={(amount) => onUpdateLine(line.id, { amount })}
+              />
+            </View>
+          );
+        })}
+      </Card>
+    );
+  }
+
+  return (
+    <View style={styles.envelopeGrid}>
+      {sections.flatMap((section) => section.lines.map((line) => ({ section, line }))).slice(0, 10).map(({ section, line }) => {
+        return (
+          <Card key={line.id} style={styles.envelopeCard}>
+            <ThemedText type="smallBold" numberOfLines={1}>{line.name}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+              {section.title}
+            </ThemedText>
+            <BudgetAmountInput
+              value={line.amount}
+              onChange={(amount) => onUpdateLine(line.id, { amount })}
+              large
+            />
+            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+              planned monthly
+            </ThemedText>
+          </Card>
+        );
+      })}
+    </View>
+  );
+}
+
+function StyleLineAmountRow({
+  line,
+  sectionLabel,
+  onUpdateLine,
+}: {
+  line: PlanLine;
+  sectionLabel: string;
+  onUpdateLine: (id: string, patch: Partial<PlanLine>) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={[styles.styleLineRow, { borderTopColor: theme.border }]}>
+      <View style={styles.destinationCopy}>
+        <ThemedText type="smallBold" numberOfLines={1}>
+          {line.name}
+        </ThemedText>
+        <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+          {sectionLabel}
+        </ThemedText>
+      </View>
+      <BudgetAmountInput
+        value={line.amount}
+        onChange={(amount) => onUpdateLine(line.id, { amount })}
+      />
+    </View>
+  );
+}
+
+function BudgetAmountInput({
+  value,
+  onChange,
+  large = false,
+}: {
+  value: number;
+  onChange: (amount: number) => void;
+  large?: boolean;
+}) {
+  const theme = useTheme();
+
+  return (
+    <TextInput
+      value={String(Math.round(value))}
+      keyboardType="numeric"
+      onChangeText={(text) => onChange(Number(text.replace(/[^0-9.]/g, '')) || 0)}
+      style={[
+        styles.amountInput,
+        large && styles.envelopeAmountInput,
+        {
+          borderColor: theme.border,
+          color: theme.text,
+          backgroundColor: theme.backgroundElement,
+        },
+      ]}
+    />
   );
 }
 
@@ -1081,56 +1315,65 @@ function GoalEditorModal({
 
   return (
     <Modal visible={draft !== null} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View
-          style={[
-            styles.methodSheet,
-            { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
-          ]}>
-          <ThemedText type="section">{draft?.id ? 'Edit goal' : 'Add goal'}</ThemedText>
-          <BudgetEditorField label="Name" value={draft?.name ?? ''} onChangeText={(value) => update({ name: value })} />
-          <BudgetEditorField
-            label="Current saved"
-            value={draft?.current ?? ''}
-            onChangeText={(value) => update({ current: value })}
-            keyboardType="numeric"
-          />
-          <BudgetEditorField
-            label="Goal amount"
-            value={draft?.target ?? ''}
-            onChangeText={(value) => update({ target: value })}
-            keyboardType="numeric"
-          />
-          <BudgetEditorField
-            label="Monthly plan"
-            value={draft?.monthlyTarget ?? ''}
-            onChangeText={(value) => update({ monthlyTarget: value })}
-            keyboardType="numeric"
-          />
-          <BudgetEditorField
-            label="Need-by month"
-            value={draft?.targetDate ?? ''}
-            onChangeText={(value) => update({ targetDate: value })}
-            placeholder="YYYY-MM"
-          />
-          <View style={styles.chips}>
-            <ToggleChip
-              label="Track arrival"
-              selected={draft?.mode === 'track'}
-              onPress={() => update({ mode: 'track' })}
-            />
-            <ToggleChip
-              label="Need by date"
-              selected={draft?.mode === 'deadline'}
-              onPress={() => update({ mode: 'deadline' })}
-            />
-          </View>
-          <View style={styles.addActions}>
-            <PillButton tone="primary" onPress={onSave}>Save goal</PillButton>
-            <PillButton onPress={onClose}>Cancel</PillButton>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.modalKeyboard}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.methodSheet,
+              { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
+            ]}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollBody}>
+              <ThemedText type="section">{draft?.id ? 'Edit goal' : 'Add goal'}</ThemedText>
+              <BudgetEditorField label="Name" value={draft?.name ?? ''} onChangeText={(value) => update({ name: value })} />
+              <BudgetEditorField
+                label="Current saved"
+                value={draft?.current ?? ''}
+                onChangeText={(value) => update({ current: value })}
+                keyboardType="numeric"
+              />
+              <BudgetEditorField
+                label="Goal amount"
+                value={draft?.target ?? ''}
+                onChangeText={(value) => update({ target: value })}
+                keyboardType="numeric"
+              />
+              <BudgetEditorField
+                label="Monthly plan"
+                value={draft?.monthlyTarget ?? ''}
+                onChangeText={(value) => update({ monthlyTarget: value })}
+                keyboardType="numeric"
+              />
+              <BudgetEditorField
+                label="Need-by month"
+                value={draft?.targetDate ?? ''}
+                onChangeText={(value) => update({ targetDate: value })}
+                placeholder="YYYY-MM"
+              />
+              <View style={styles.chips}>
+                <ToggleChip
+                  label="Track arrival"
+                  selected={draft?.mode === 'track'}
+                  onPress={() => update({ mode: 'track' })}
+                />
+                <ToggleChip
+                  label="Need by date"
+                  selected={draft?.mode === 'deadline'}
+                  onPress={() => update({ mode: 'deadline' })}
+                />
+              </View>
+              <View style={styles.addActions}>
+                <PillButton tone="primary" onPress={onSave}>Save goal</PillButton>
+                <PillButton onPress={onClose}>Cancel</PillButton>
+              </View>
+            </ScrollView>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1154,32 +1397,41 @@ function PlannedExpenseModal({
 
   return (
     <Modal visible={draft !== null} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View
-          style={[
-            styles.methodSheet,
-            { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
-          ]}>
-          <ThemedText type="section">{draft?.id ? 'Edit planned expense' : 'Add planned expense'}</ThemedText>
-          <BudgetEditorField label="Name" value={draft?.name ?? ''} onChangeText={(value) => update({ name: value })} />
-          <BudgetEditorField
-            label="Date"
-            value={draft?.date ?? ''}
-            onChangeText={(value) => update({ date: value })}
-            placeholder="YYYY-MM-DD"
-          />
-          <BudgetEditorField
-            label="Amount"
-            value={draft?.amount ?? ''}
-            onChangeText={(value) => update({ amount: value })}
-            keyboardType="numeric"
-          />
-          <View style={styles.addActions}>
-            <PillButton tone="primary" onPress={onSave}>Save expense</PillButton>
-            <PillButton onPress={onClose}>Cancel</PillButton>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.modalKeyboard}>
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.methodSheet,
+              { backgroundColor: theme.backgroundElement, borderColor: theme.borderStrong },
+            ]}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollBody}>
+              <ThemedText type="section">{draft?.id ? 'Edit planned expense' : 'Add planned expense'}</ThemedText>
+              <BudgetEditorField label="Name" value={draft?.name ?? ''} onChangeText={(value) => update({ name: value })} />
+              <BudgetEditorField
+                label="Date"
+                value={draft?.date ?? ''}
+                onChangeText={(value) => update({ date: value })}
+                placeholder="YYYY-MM-DD"
+              />
+              <BudgetEditorField
+                label="Amount"
+                value={draft?.amount ?? ''}
+                onChangeText={(value) => update({ amount: value })}
+                keyboardType="numeric"
+              />
+              <View style={styles.addActions}>
+                <PillButton tone="primary" onPress={onSave}>Save expense</PillButton>
+                <PillButton onPress={onClose}>Cancel</PillButton>
+              </View>
+            </ScrollView>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -1349,11 +1601,97 @@ const styles = StyleSheet.create({
   gaugeCard: {
     gap: Spacing.two,
   },
+  planSectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  categoryIconTile: {
+    width: 34,
+    height: 34,
+    borderRadius: Radius.control,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   styleCard: {
     gap: Spacing.two,
   },
+  guideToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  guideRow: {
+    gap: Spacing.half,
+    borderTopWidth: 1,
+    paddingTop: Spacing.two,
+  },
   ruleRows: {
     gap: Spacing.one,
+  },
+  styleLayout: {
+    gap: Spacing.three,
+  },
+  ruleCard: {
+    gap: Spacing.two,
+  },
+  styleLayoutHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  styleLayoutTitle: {
+    flex: 1,
+    minWidth: 0,
+  },
+  styleLayoutAmount: {
+    maxWidth: '52%',
+    flexShrink: 1,
+    textAlign: 'right',
+  },
+  styleLineList: {
+    gap: Spacing.one,
+  },
+  styleLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderTopWidth: 1,
+    paddingTop: Spacing.two,
+  },
+  zeroCard: {
+    gap: Spacing.two,
+  },
+  zeroAssign: {
+    borderRadius: Radius.control,
+    padding: Spacing.three,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  zeroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderTopWidth: 1,
+    paddingTop: Spacing.two,
+  },
+  envelopeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  envelopeCard: {
+    width: '48%',
+    minHeight: 150,
+    gap: Spacing.two,
+  },
+  envelopeAmountInput: {
+    width: '100%',
+    fontSize: 24,
+    paddingVertical: Spacing.two,
   },
   ruleRow: {
     flexDirection: 'row',
@@ -1454,12 +1792,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: Spacing.three,
   },
+  modalKeyboard: {
+    flex: 1,
+  },
   methodSheet: {
     width: '100%',
     maxWidth: 520,
+    maxHeight: '88%',
     borderWidth: 1,
     borderRadius: Radius.card + 6,
     padding: Spacing.four,
+    gap: Spacing.three,
+  },
+  modalScrollBody: {
     gap: Spacing.three,
   },
   confirmHead: {

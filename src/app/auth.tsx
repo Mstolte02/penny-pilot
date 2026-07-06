@@ -1,13 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card, PennyBadge, PillButton, SpeechBubble, ToggleChip } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { env } from '@/config/env';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import {
   BUDGET_STYLE_KEY,
@@ -78,6 +77,7 @@ export default function AccountScreen() {
   const [busy, setBusy] = useState(false);
   const [notificationPrefs, setNotificationPrefs] =
     useState<Record<NotificationKey, boolean>>(NOTIFICATION_DEFAULTS);
+  const [resetPhrase, setResetPhrase] = useState('');
 
   useEffect(() => {
     AsyncStorage.getItem(NOTIFICATION_PREFS_KEY)
@@ -99,6 +99,7 @@ export default function AccountScreen() {
   };
 
   const [confirmingReset, setConfirmingReset] = useState(false);
+  const resetPhraseMatches = resetPhrase === 'Delete Data';
 
   const startFresh = async () => {
     await resetToSeeds();
@@ -158,8 +159,14 @@ export default function AccountScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={styles.container}>
+      <ThemedView style={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled">
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.header}>
             <View style={styles.headerCopy}>
@@ -259,28 +266,39 @@ export default function AccountScreen() {
             <View style={styles.actions}>
               {confirmingReset ? (
                 <>
-                  <PillButton tone="primary" onPress={() => void startFresh()}>
-                    Yes, erase it all
+                  <ThemedText type="smallBold">Type Delete Data to confirm.</ThemedText>
+                  <TextInput
+                    value={resetPhrase}
+                    onChangeText={setResetPhrase}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    placeholder="Delete Data"
+                    placeholderTextColor="#8D8274"
+                    style={styles.confirmInput}
+                  />
+                  <PillButton
+                    tone="primary"
+                    disabled={!resetPhraseMatches}
+                    onPress={() => void startFresh()}>
+                    Delete Data
                   </PillButton>
-                  <PillButton onPress={() => setConfirmingReset(false)}>Keep my data</PillButton>
+                  <PillButton
+                    onPress={() => {
+                      setConfirmingReset(false);
+                      setResetPhrase('');
+                    }}>
+                    Keep my data
+                  </PillButton>
                 </>
               ) : (
                 <PillButton onPress={() => setConfirmingReset(true)}>Erase and start fresh</PillButton>
               )}
             </View>
           </Card>
-
-          <Card>
-            <ThemedText type="smallBold">Data mode</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {env.dataSource === 'supabase'
-                ? 'Supabase mode is enabled. Social providers must be configured in Supabase.'
-                : 'Mock mode is enabled. Buttons use the demo user until Supabase mode is turned on.'}
-            </ThemedText>
-          </Card>
         </SafeAreaView>
-      </ScrollView>
-    </ThemedView>
+        </ScrollView>
+      </ThemedView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -318,6 +336,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.two,
+  },
+  confirmInput: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#D6CABC',
+    backgroundColor: '#FFFDF8',
+    color: '#2C251E',
+    borderRadius: 14,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    fontSize: 15,
+    minHeight: 46,
   },
   notifRow: {
     flexDirection: 'row',

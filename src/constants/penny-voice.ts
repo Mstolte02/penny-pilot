@@ -10,6 +10,7 @@
 export const SETUP_COMPLETE_KEY = 'penny:setupComplete';
 export const BUDGET_STYLE_KEY = 'penny:budgetStyle';
 export const NOTIFICATION_PREFS_KEY = 'penny:notificationPrefs';
+export const WIZARD_STATE_KEY = 'penny:wizardState';
 
 /** Verdicts for the "Can I afford this?" forecast. */
 export const affordVerdicts = {

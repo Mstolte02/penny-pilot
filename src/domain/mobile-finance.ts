@@ -1,4 +1,4 @@
-export type MobileTransactionType = 'income' | 'expense';
+export type MobileTransactionType = 'income' | 'expense' | 'transfer';
 
 export type MobileTransaction = {
   id: string;

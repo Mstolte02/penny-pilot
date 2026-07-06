@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — Penny Pilot</title>
+    <style>
+      body {
+        background: #fffaf0;
+        color: #102033;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        padding: 24px;
+        line-height: 1.6;
+      }
+
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 24px 0 64px;
+      }
+
+      h1 {
+        font-size: 32px;
+        margin: 0 0 4px;
+      }
+
+      h2 {
+        font-size: 20px;
+        margin: 32px 0 8px;
+        color: #7a3b12;
+      }
+
+      p, li {
+        font-size: 16px;
+        margin: 8px 0;
+      }
+
+      .meta {
+        color: #5a6472;
+        margin-bottom: 24px;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 12px 0;
+        font-size: 15px;
+      }
+
+      th, td {
+        border: 1px solid #e3d9c8;
+        padding: 8px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #b87333;
+        color: #fff;
+      }
+
+      a {
+        color: #a8551d;
+      }
+
+      strong {
+        color: #102033;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Penny Pilot Privacy Policy</h1>
+      <p class="meta">Effective date: July 5, 2026 · Contact: markstolte02@gmail.com</p>
+
+      <p>
+        Penny Pilot is a personal finance app operated by Mark Stolte (&ldquo;we,&rdquo;
+        &ldquo;us&rdquo;). This policy describes what data the app handles, where it goes, and
+        what your choices are. It&rsquo;s written to be read, not skimmed past — it is short
+        because the app collects little.
+      </p>
+
+      <h2>The short version</h2>
+      <ul>
+        <li><strong>You can use Penny Pilot without an account.</strong> In that mode, everything — transactions you import or enter, budgets, goals — stays on your device. We never see it.</li>
+        <li>If you <strong>sign in</strong> (with Apple or Google), your data syncs to our backend so it survives device changes. We store only what the app needs to work.</li>
+        <li>If you <strong>connect a bank</strong> through Plaid, transaction and balance data flows from your bank to our backend via Plaid. We never see or store your bank username or password.</li>
+        <li>We don&rsquo;t sell your data, we don&rsquo;t show ads, and we don&rsquo;t share your data with anyone except the service providers listed below who are required to run the app.</li>
+      </ul>
+
+      <h2>What we collect, and when</h2>
+      <p>
+        <strong>If you use the app without signing in:</strong> nothing. Transactions you import
+        from a CSV/Excel file or enter by hand are parsed and stored on your device only.
+        Deleting the app (or using &ldquo;Erase and start fresh&rdquo; in settings) removes them.
+      </p>
+      <p><strong>If you sign in with Apple or Google:</strong></p>
+      <ul>
+        <li>Your email address and display name, as shared by Apple or Google. (With Apple you can use &ldquo;Hide My Email,&rdquo; and the app works fine with a relay address.)</li>
+        <li>A user ID that ties your synced data to your account.</li>
+        <li>The financial data you create or import in the app — transactions (merchant, amount, date, category), budgets, goals, and categorization rules — stored in our backend so it syncs across your devices.</li>
+      </ul>
+      <p><strong>If you connect a bank account through Plaid:</strong></p>
+      <ul>
+        <li>Account metadata (institution name, account name, last-four mask, balances) and transaction history, provided by Plaid from your financial institution.</li>
+        <li>Your bank sign-in credentials are entered directly with Plaid or your bank — <strong>we never receive, see, or store them</strong>. Plaid&rsquo;s handling of your data is described in <a href="https://plaid.com/legal/#end-user-privacy-policy">Plaid&rsquo;s End User Privacy Policy</a>.</li>
+        <li>The credential Plaid issues us for ongoing sync (an &ldquo;access token&rdquo;) is stored encrypted with an additional application-level key on top of database encryption.</li>
+      </ul>
+      <p>
+        <strong>What we never collect:</strong> your location, contacts, photos, browsing
+        history, health data, or payment card numbers. The app contains no advertising or
+        cross-app tracking SDKs.
+      </p>
+
+      <h2>How we use your data</h2>
+      <p>
+        Solely to provide the app&rsquo;s features: showing your transactions, suggesting
+        categories, building budgets, and projecting savings. Categorization and forecasting run
+        on your data alone — we do not currently use anyone&rsquo;s data to train models or build
+        profiles across users, and if that ever changes it will be disclosed here first, before
+        it ships.
+      </p>
+
+      <h2>Who we share data with</h2>
+      <p>Only the service providers required to operate the app:</p>
+      <table>
+        <tr><th>Provider</th><th>Role</th><th>What they process</th></tr>
+        <tr>
+          <td><a href="https://supabase.com/privacy">Supabase</a></td>
+          <td>Database, authentication, and backend hosting</td>
+          <td>Everything listed under &ldquo;if you sign in&rdquo; above</td>
+        </tr>
+        <tr>
+          <td><a href="https://plaid.com/legal/#end-user-privacy-policy">Plaid</a></td>
+          <td>Bank connections</td>
+          <td>Your bank credentials (directly with your bank) and the account/transaction data it provides to us</td>
+        </tr>
+        <tr>
+          <td>Apple / Google</td>
+          <td>Sign-in</td>
+          <td>Your identity claims (email, name) when you choose them as your sign-in provider</td>
+        </tr>
+      </table>
+      <p>
+        We may also disclose data if legally required to (for example, a valid subpoena). We
+        have never received such a request as of the effective date above.
+      </p>
+      <p>
+        We do not sell personal data and have not sold it in the past, as &ldquo;sell&rdquo; is
+        defined under the California Consumer Privacy Act (CCPA).
+      </p>
+
+      <h2>Data retention and deletion</h2>
+      <ul>
+        <li><strong>On-device data:</strong> under your control. &ldquo;Erase and start fresh&rdquo; in settings deletes all locally stored data immediately; so does deleting the app.</li>
+        <li><strong>Synced data:</strong> kept as long as your account exists. To delete your account and all synced data, email markstolte02@gmail.com from the address associated with your account — deletion removes your profile and every dependent record (transactions, accounts, budgets, goals, bank connections), and we instruct Plaid to revoke any active bank connection. We aim to complete deletion requests within 30 days.</li>
+        <li><strong>Bank connections:</strong> to disconnect a bank without deleting your account, email us at the address above, or use <a href="https://my.plaid.com">Plaid Portal</a> — Plaid&rsquo;s own tool that lets you view and revoke any app&rsquo;s connection to your bank directly.</li>
+      </ul>
+
+      <h2>Security</h2>
+      <p>
+        Data in transit is encrypted with TLS. Synced data is protected by per-user database
+        access rules (your session can only ever read your own rows) and encrypted at rest;
+        Plaid access tokens carry an additional layer of application-level AES-256 encryption.
+        Sign-in sessions on your device are stored in the iOS Keychain / Android Keystore. No
+        security is perfect, but if we learn of a breach affecting your data, we will notify
+        you directly at the email on your account.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        Penny Pilot is not directed at children under 13, and we do not knowingly collect data
+        from them. If you believe a child has created an account, contact us and we will delete
+        it.
+      </p>
+
+      <h2>Your rights</h2>
+      <p>
+        Depending on where you live (e.g., California, the EU/UK), you may have rights to
+        access, correct, export, or delete your personal data. Penny Pilot is small enough that
+        there&rsquo;s no form or portal — email markstolte02@gmail.com and a human (the
+        developer) will handle it.
+      </p>
+
+      <h2>Changes to this policy</h2>
+      <p>
+        If this policy changes materially, the effective date above will be updated and — for
+        signed-in users — the app will surface the change before it takes effect. The current
+        version is always at this URL.
+      </p>
+    </main>
+  </body>
+</html>

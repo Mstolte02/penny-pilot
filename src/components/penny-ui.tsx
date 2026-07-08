@@ -689,17 +689,43 @@ export function SpeechBubble({
   animated?: boolean;
 }>) {
   const theme = useTheme();
+  const reducedMotion = useReducedMotion();
+  const [entrance] = useState(() => new Animated.Value(reducedMotion ? 1 : 0));
+
+  // The bubble pops in like a chat message arriving — once, on mount.
+  useEffect(() => {
+    if (reducedMotion) {
+      entrance.setValue(1);
+      return;
+    }
+    const animation = Animated.spring(entrance, {
+      toValue: 1,
+      friction: 7,
+      tension: 70,
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [entrance, reducedMotion]);
 
   return (
     <View style={styles.speechRow}>
       <PennyBadge mode={mode} expression={expression} animated={animated} size={44} />
-      <View
+      <Animated.View
         style={[
           styles.speechBubble,
           { backgroundColor: theme.backgroundSelected, borderColor: theme.primary },
+          {
+            opacity: entrance,
+            transform: [
+              { scale: entrance.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) },
+              { translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) },
+            ],
+            transformOrigin: 'bottom left',
+          },
         ]}>
         <ThemedText type="smallBold">{children}</ThemedText>
-      </View>
+      </Animated.View>
     </View>
   );
 }

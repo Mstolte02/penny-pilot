@@ -1,9 +1,33 @@
-import { useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { chartPalette, Spacing } from '@/constants/theme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
+
+/** Bars grow up from the baseline on mount; collapses to static under reduced motion. */
+function useGrowOnMount() {
+  const reducedMotion = useReducedMotion();
+  const [grow] = useState(() => new Animated.Value(reducedMotion ? 1 : 0));
+
+  useEffect(() => {
+    if (reducedMotion) {
+      grow.setValue(1);
+      return;
+    }
+    const animation = Animated.timing(grow, {
+      toValue: 1,
+      duration: 640,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [grow, reducedMotion]);
+
+  return grow;
+}
 
 const TOOLTIP_WIDTH = 104;
 const LINE_TOOLTIP_WIDTH = 136;
@@ -25,6 +49,8 @@ type TrendBarsProps = {
   /** Optional plan/budget line. */
   targetValue?: number;
   targetLabel?: string;
+  /** Print each bar's value above it — used by the expanded full-screen view. */
+  showValues?: boolean;
 };
 
 /**
@@ -40,8 +66,10 @@ export function TrendBars({
   formatValue,
   targetValue,
   targetLabel = 'Plan',
+  showValues,
 }: TrendBarsProps) {
   const theme = useTheme();
+  const grow = useGrowOnMount();
   const [plotWidth, setPlotWidth] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const values = data.map((point) => point.value);
@@ -161,12 +189,38 @@ export function TrendBars({
               key={`${point.label}-${index}`}
               style={styles.trendColumn}
               onPress={() => setSelected(isSelected ? null : index)}>
+              {showValues ? (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.barValue,
+                    // Clamp inside the plot so labels on tall bars don't clip away.
+                    { bottom: Math.min(heightFor(point.value) + 4, plotHeight - 22) },
+                  ]}>
+                  <View
+                    style={[
+                      styles.barValueChip,
+                      { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                    ]}>
+                    <ThemedText
+                      type="smallBold"
+                      numberOfLines={1}
+                      style={[
+                        styles.barValueText,
+                        data.length > 8 && styles.barValueTextRotated,
+                        { color: isLast ? theme.text : theme.textSecondary },
+                      ]}>
+                      {format(point.value)}
+                    </ThemedText>
+                  </View>
+                </View>
+              ) : null}
               <View
                 style={[
                   styles.barBackplate,
                   { backgroundColor: signed ? theme.background : theme.backgroundSelected },
                 ]}>
-                <View
+                <Animated.View
                   style={[
                   styles.trendBar,
                   {
@@ -175,6 +229,8 @@ export function TrendBars({
                     opacity: isLast || isSelected ? 1 : 0.72,
                     borderWidth: isSelected ? 2 : 0,
                     borderColor: theme.text,
+                    transformOrigin: 'bottom',
+                    transform: [{ scaleY: grow }],
                   },
                 ]}
                 />
@@ -369,6 +425,7 @@ export function LineChart({
   legend,
 }: LineChartProps) {
   const theme = useTheme();
+  const grow = useGrowOnMount();
   const [plotWidth, setPlotWidth] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
 
@@ -453,6 +510,7 @@ export function LineChart({
             />
           ))}
 
+          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: grow }]}>
           {plotWidth > 0
             ? series.map((entry, seriesIndex) => {
                 const color = entry.color ?? theme.primary;
@@ -561,6 +619,7 @@ export function LineChart({
                 return <View key={seriesIndex} pointerEvents="none" style={StyleSheet.absoluteFill}>{pieces}</View>;
               })
             : null}
+          </Animated.View>
 
           {plotWidth > 0 && markers
             ? markers.map((marker, index) => {
@@ -828,6 +887,26 @@ const styles = StyleSheet.create({
     minHeight: 4,
     borderTopLeftRadius: 999,
     borderTopRightRadius: 999,
+  },
+  barValue: {
+    position: 'absolute',
+    left: -20,
+    right: -20,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  barValueChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  barValueText: {
+    fontSize: 10,
+  },
+  barValueTextRotated: {
+    fontSize: 9.5,
+    transform: [{ rotate: '-52deg' }],
   },
   trendOverlay: {
     position: 'absolute',

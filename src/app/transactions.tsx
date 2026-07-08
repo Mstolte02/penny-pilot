@@ -24,8 +24,8 @@ import {
   SpeechBubble,
   ToggleChip,
 } from '@/components/penny-ui';
+import { FadeInUp } from '@/components/penny-motion';
 import { ThemedText } from '@/components/themed-text';
-import { TransactionSourceCard } from '@/components/transaction-source-card';
 import { Radius, Spacing } from '@/constants/theme';
 import { emptyStates } from '@/constants/penny-voice';
 import type { Category, Subcategory, Transaction } from '@/domain/finance';
@@ -292,7 +292,6 @@ export default function TransactionsScreen() {
     deleteTransaction,
     cancelFlags,
     setCancelFlags,
-    transactionEdits,
     setTransactionEdits,
     resolvedReviewIds,
     markReviewResolved,
@@ -314,6 +313,8 @@ export default function TransactionsScreen() {
   const [localReviewOpen, setLocalReviewOpen] = useState(false);
   const [similarReview, setSimilarReview] = useState<SimilarReviewState>(null);
   const [showHistoricalSubscriptions, setShowHistoricalSubscriptions] = useState(false);
+  const [showFormatHelp, setShowFormatHelp] = useState(false);
+  const [showRecent, setShowRecent] = useState(false);
 
   const subscriptions = useMemo(
     () => detectSubscriptions(storeTransactions, planLines),
@@ -394,31 +395,6 @@ export default function TransactionsScreen() {
     return () => clearTimeout(timeout);
   }, [loadFeed]);
 
-  const groups = useMemo(() => {
-    const byDay = new Map<string, Transaction[]>();
-    for (const transaction of pendingReview) {
-      const day = byDay.get(transaction.date) ?? [];
-      day.push(transaction);
-      byDay.set(transaction.date, day);
-    }
-    return Array.from(byDay.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [pendingReview]);
-
-  const guessFor = (transaction: Transaction) => {
-    const suggestion = suggestions[transaction.id];
-    if (!suggestion) return 'Needs a category';
-    const category = categories.find((entry) => entry.id === suggestion.categoryId);
-    const subcategory = category?.subcategories.find(
-      (entry) => entry.id === suggestion.subcategoryId
-    );
-    return category
-      ? `${category.name}${subcategory ? ` › ${subcategory.name}` : ''}`
-      : 'Needs a category';
-  };
-
-  const confidenceFor = (transaction: Transaction) =>
-    confidenceDisplay[suggestions[transaction.id]?.confidence ?? 'none'];
-
   const openManualEditor = (transaction?: StoredTransaction) => {
     setEditor({
       mode: 'manual',
@@ -434,20 +410,6 @@ export default function TransactionsScreen() {
           : transaction?.type === 'transfer'
             ? 'transfer'
             : 'expense',
-    });
-  };
-
-  const openFeedEditor = (transaction: Transaction) => {
-    const patch = transactionEdits[transaction.id];
-    setEditor({
-      mode: 'feed',
-      title: 'Correct transaction',
-      sourceId: transaction.id,
-      date: transaction.date,
-      merchantName: patch?.merchantName ?? transaction.merchantName,
-      category: patch?.category ?? guessFor(transaction),
-      amount: String(patch?.amount ?? transaction.amount),
-      kind: 'expense',
     });
   };
 
@@ -648,86 +610,158 @@ export default function TransactionsScreen() {
               tintColor={theme.primary}
             />
           }>
-          <View style={styles.statusRow}>
-            <Pill label={`${radarCount} on radar`} tone="info" />
-            <Pill label={`${Math.max(0, sortedCount)} sorted`} tone="good" />
-          </View>
-
-          {radarCount > 0 ? (
-            <PillButton
-              tone="primary"
-              onPress={() =>
-                localReviewItems.length > 0 ? setLocalReviewOpen(true) : setReviewOpen(true)
-              }>
-              Review transactions ({radarCount})
-            </PillButton>
-          ) : null}
-
-          <Card style={styles.manualCard}>
-            <View style={styles.manualTop}>
-              <View style={styles.manualCopy}>
-                <ThemedText type="smallBold">Manual & imported</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Import a CSV or Excel export from your bank, or add cash and Venmo by hand. Everything
-                  lands in your reports.
-                </ThemedText>
+          <FadeInUp>
+            <Card style={[styles.radarCard, radarCount > 0 && { borderColor: theme.primary }]}>
+              <View style={styles.radarHead}>
+                <PennyBadge
+                  expression={radarCount === 0 ? 'celebrating' : 'thinking'}
+                  size={54}
+                  animated={false}
+                />
+                <View style={styles.manualCopy}>
+                  <ThemedText type="section">
+                    {radarCount === 0
+                      ? 'Radar is clear'
+                      : `${radarCount} ${radarCount === 1 ? 'transaction' : 'transactions'} on radar`}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {radarCount === 0
+                      ? `${Math.max(0, sortedCount)} sorted. New imports land here when they need a category.`
+                      : 'Quick sort — Penny remembers every correction you make.'}
+                  </ThemedText>
+                </View>
               </View>
-            </View>
-            <View style={styles.importActions}>
-              <PillButton tone="primary" onPress={() => void importCsv()}>
-                Import bank file
-              </PillButton>
-              <PillButton onPress={() => openManualEditor()}>Add by hand</PillButton>
-            </View>
-            {importError ? (
-              <ThemedText type="small" style={{ color: theme.danger }}>
-                {importError}
-              </ThemedText>
-            ) : null}
-            {lastImport ? (
-              <ThemedText type="small" style={{ color: theme.success }}>
-                {lastImport}
-              </ThemedText>
-            ) : null}
-            {userEntries.length === 0 ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                No entries of your own yet.
-              </ThemedText>
-            ) : (
-              <>
-                {userEntries.slice(0, 12).map((transaction) => (
+              {radarCount > 0 ? (
+                <PillButton
+                  tone="primary"
+                  onPress={() =>
+                    localReviewItems.length > 0 ? setLocalReviewOpen(true) : setReviewOpen(true)
+                  }>
+                  Start reviewing
+                </PillButton>
+              ) : (
+                <View style={styles.statusRow}>
+                  <Pill label={`${Math.max(0, sortedCount)} sorted`} tone="good" />
+                  <Pill label={`${userEntries.length} entries in reports`} tone="muted" />
+                </View>
+              )}
+            </Card>
+          </FadeInUp>
+
+          <FadeInUp delay={80}>
+            <Card style={styles.manualCard}>
+              <View style={styles.manualTop}>
+                <View style={styles.manualCopy}>
+                  <ThemedText type="smallBold">Manual & imported</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Import a CSV or Excel export from your bank, or add cash and Venmo by hand.
+                    Everything lands in your reports and the Logbook — this tab stays for reviewing.
+                  </ThemedText>
+                </View>
+              </View>
+              <View style={styles.importActions}>
+                <PillButton tone="primary" onPress={() => void importCsv()}>
+                  Import bank file
+                </PillButton>
+                <PillButton onPress={() => openManualEditor()}>Add by hand</PillButton>
+              </View>
+              {importError ? (
+                <ThemedText type="small" style={{ color: theme.danger }}>
+                  {importError}
+                </ThemedText>
+              ) : null}
+              {lastImport ? (
+                <ThemedText type="small" style={{ color: theme.success }}>
+                  {lastImport}
+                </ThemedText>
+              ) : null}
+
+              <Pressable
+                onPress={() => setShowFormatHelp((value) => !value)}
+                style={styles.disclosureRow}>
+                <ThemedText type="smallBold" style={{ color: theme.secondary }}>
+                  What does the file need?
+                </ThemedText>
+                <ThemedText type="smallBold" themeColor="textSecondary">
+                  {showFormatHelp ? '⌃' : '⌄'}
+                </ThemedText>
+              </Pressable>
+              {showFormatHelp ? (
+                <View style={[styles.formatHelp, { backgroundColor: theme.backgroundSelected }]}>
+                  <ThemedText type="small">
+                    A CSV, XLS, or XLSX export with a header row and these columns — most bank
+                    exports already match:
+                  </ThemedText>
+                  <ThemedText type="small">
+                    <ThemedText type="smallBold">1. Date</ThemedText> — named Date, Transaction
+                    Date, Posted Date, or Posting Date.
+                  </ThemedText>
+                  <ThemedText type="small">
+                    <ThemedText type="smallBold">2. Description</ThemedText> — named Description,
+                    Merchant, Name, Payee, or Memo.
+                  </ThemedText>
+                  <ThemedText type="small">
+                    <ThemedText type="smallBold">3. Amount</ThemedText> — either one signed Amount
+                    column (negative = spent), or two columns like Debit/Credit, Money Out/Money
+                    In, or Withdrawal/Deposit.
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Extra columns are ignored. Duplicates are skipped automatically, and the file
+                    never leaves this device.
+                  </ThemedText>
+                </View>
+              ) : null}
+
+              {userEntries.length > 0 ? (
+                <>
                   <Pressable
-                    key={transaction.id}
-                    onPress={() => openManualEditor(transaction)}
-                    style={({ pressed }) => [
-                      styles.manualRow,
-                      { borderTopColor: theme.border, opacity: pressed ? 0.72 : 1 },
-                    ]}>
-                    <View style={styles.feedCopy}>
-                      <ThemedText type="smallBold" numberOfLines={1}>
-                        {transaction.item}
-                      </ThemedText>
-                      <ThemedText
-                        type="small"
-                        themeColor={transaction.category === 'Uncategorized' ? 'warning' : 'textSecondary'}
-                        numberOfLines={1}>
-                        {dayLabel(transaction.date)} · {transaction.category}
-                        {transaction.source === 'import' ? ' · imported' : ''}
-                      </ThemedText>
-                    </View>
-                    <ThemedText type="money" style={styles.feedAmount}>
-                      {formatTransactionMoney(transaction.amount)}
+                    onPress={() => setShowRecent((value) => !value)}
+                    style={styles.disclosureRow}>
+                    <ThemedText type="smallBold" style={{ color: theme.secondary }}>
+                      Recent entries ({userEntries.length})
+                    </ThemedText>
+                    <ThemedText type="smallBold" themeColor="textSecondary">
+                      {showRecent ? '⌃' : '⌄'}
                     </ThemedText>
                   </Pressable>
-                ))}
-                {userEntries.length > 12 ? (
-                  <ThemedText type="small" themeColor="textSecondary">
-                    …and {userEntries.length - 12} more in your reports.
-                  </ThemedText>
-                ) : null}
-              </>
-            )}
-          </Card>
+                  {showRecent
+                    ? userEntries.slice(0, 8).map((transaction) => (
+                        <Pressable
+                          key={transaction.id}
+                          onPress={() => openManualEditor(transaction)}
+                          style={({ pressed }) => [
+                            styles.manualRow,
+                            { borderTopColor: theme.border, opacity: pressed ? 0.72 : 1 },
+                          ]}>
+                          <View style={styles.feedCopy}>
+                            <ThemedText type="smallBold" numberOfLines={1}>
+                              {transaction.item}
+                            </ThemedText>
+                            <ThemedText
+                              type="small"
+                              themeColor={
+                                transaction.category === 'Uncategorized' ? 'warning' : 'textSecondary'
+                              }
+                              numberOfLines={1}>
+                              {dayLabel(transaction.date)} · {transaction.category}
+                              {transaction.source === 'import' ? ' · imported' : ''}
+                            </ThemedText>
+                          </View>
+                          <ThemedText type="money" style={styles.feedAmount}>
+                            {formatTransactionMoney(transaction.amount)}
+                          </ThemedText>
+                        </Pressable>
+                      ))
+                    : null}
+                  {showRecent ? (
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Tap an entry to correct it. The full history lives in the Logbook.
+                    </ThemedText>
+                  ) : null}
+                </>
+              ) : null}
+            </Card>
+          </FadeInUp>
 
           {error ? (
             <Card style={styles.gap}>
@@ -747,54 +781,8 @@ export default function TransactionsScreen() {
           ) : null}
 
           {!loading && radarCount === 0 && !error ? (
-            <Card style={styles.gap}>
-              <SpeechBubble expression="celebrating">{emptyStates.allReviewed}</SpeechBubble>
-              <PillButton onPress={() => void loadFeed('refresh')}>Check again</PillButton>
-            </Card>
+            <SpeechBubble expression="celebrating">{emptyStates.allReviewed}</SpeechBubble>
           ) : null}
-
-          {groups.map(([date, dayTransactions]) => (
-            <View key={date} style={styles.dayGroup}>
-              <ThemedText type="smallBold" themeColor="textSecondary" style={styles.dayHeader}>
-                {dayLabel(date)}
-              </ThemedText>
-              <Card style={styles.dayCard}>
-                {dayTransactions.map((transaction, index) => {
-                  const confidence = confidenceFor(transaction);
-                  const edit = transactionEdits[transaction.id];
-                  return (
-                    <View
-                      key={transaction.id}
-                      style={[
-                        styles.feedRow,
-                        index > 0 && { borderTopWidth: 1, borderTopColor: theme.border },
-                      ]}>
-                      <View style={styles.feedCopy}>
-                        <ThemedText type="smallBold" numberOfLines={1}>
-                          {edit?.merchantName ?? transaction.merchantName}
-                        </ThemedText>
-                        <ThemedText type="small" style={{ color: theme.primary }} numberOfLines={1}>
-                          {edit?.category ?? guessFor(transaction)}
-                        </ThemedText>
-                        <View style={styles.feedTags}>
-                          <Pill
-                            label={edit ? 'Edited' : confidence.label}
-                            tone={edit ? 'info' : confidence.tone}
-                          />
-                          <PillButton onPress={() => openFeedEditor(transaction)}>Edit</PillButton>
-                        </View>
-                      </View>
-                      <ThemedText type="money" style={styles.feedAmount}>
-                        {formatTransactionMoney(edit?.amount ?? transaction.amount)}
-                      </ThemedText>
-                    </View>
-                  );
-                })}
-              </Card>
-            </View>
-          ))}
-
-          <TransactionSourceCard />
         </ScrollView>
       ) : (
         <ScrollView
@@ -1830,7 +1818,28 @@ const styles = StyleSheet.create({
   },
   statusRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Spacing.two,
+  },
+  radarCard: {
+    gap: Spacing.two,
+  },
+  radarHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  disclosureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    paddingVertical: 2,
+  },
+  formatHelp: {
+    borderRadius: Radius.control,
+    padding: Spacing.three,
+    gap: Spacing.one,
   },
   importActions: {
     flexDirection: 'row',

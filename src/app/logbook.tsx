@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { ChartValueTable, ExpandableChart } from '@/components/chart-expander';
 import { LineChart, TrendBars } from '@/components/mini-charts';
+import { FadeInUp } from '@/components/penny-motion';
 import {
   Card,
   MonthTicker,
@@ -223,17 +225,47 @@ export default function LogbookScreen() {
             />
           </View>
 
-          <Card>
-            <ThemedText type="smallBold">Spending trend · last 12 months</ThemedText>
-            <TrendBars
-              data={report.series}
-              height={140}
-              formatValue={(value) => formatMoney(value)}
-              targetValue={base.budget.totalExpenses}
-              targetLabel="Plan"
-            />
-          </Card>
+          <FadeInUp delay={60}>
+            <Card>
+              <ThemedText type="smallBold">Spending trend · last 12 months</ThemedText>
+              <ExpandableChart
+                title="Spending trend"
+                subtitle="Monthly spending vs your plan, with every number"
+                renderExpanded={() => (
+                  <>
+                    <TrendBars
+                      data={report.series}
+                      height={300}
+                      showValues
+                      formatValue={(value) => formatMoney(value)}
+                      targetValue={base.budget.totalExpenses}
+                      targetLabel="Plan"
+                    />
+                    <ChartValueTable
+                      columns={['Month', 'Spent', 'vs plan']}
+                      highlightLast
+                      rows={report.series.map((point) => [
+                        point.label,
+                        formatMoney(point.value),
+                        `${point.value <= base.budget.totalExpenses ? '−' : '+'}${formatMoney(
+                          Math.abs(point.value - base.budget.totalExpenses)
+                        )}`,
+                      ])}
+                    />
+                  </>
+                )}>
+                <TrendBars
+                  data={report.series}
+                  height={140}
+                  formatValue={(value) => formatMoney(value)}
+                  targetValue={base.budget.totalExpenses}
+                  targetLabel="Plan"
+                />
+              </ExpandableChart>
+            </Card>
+          </FadeInUp>
 
+          <FadeInUp delay={130}>
           <Card style={styles.drillCard}>
             <ThemedText type="smallBold">Where it went · {shortMonth(month)}</ThemedText>
 
@@ -330,6 +362,7 @@ export default function LogbookScreen() {
               Tap a category for subcategories, tap again for the transactions behind it.
             </ThemedText>
           </Card>
+          </FadeInUp>
 
           <SpeechBubble expression={netUp ? 'happy' : 'thinking'}>
             {netUp
@@ -352,39 +385,90 @@ export default function LogbookScreen() {
             />
           </View>
 
-          <Card style={styles.chartCard}>
-            <ThemedText type="smallBold">Net worth · last 12 months</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Savings balance anchored to your real numbers, walked by monthly net.
-            </ThemedText>
-            <LineChart
-              height={170}
-              series={[{ points: netWorth.points, color: chartPalette.steelBlue, area: true }]}
-              legend={[{ label: 'Savings balance', color: chartPalette.steelBlue }]}
-            />
-          </Card>
-
-          <Card style={styles.chartCard}>
-            <ThemedText type="smallBold">The compounding curve</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              {formatMoney(weekly)}/week invested at a {Math.round(EDUCATION_RETURN * 100)}% average
-              annual return ≈ {formatMoney(educationFinal)} after {EDUCATION_YEARS} years.
-            </ThemedText>
-            <View style={styles.weeklyChips}>
-              {WEEKLY_OPTIONS.map((option) => (
-                <ToggleChip
-                  key={option}
-                  label={`${formatMoney(option)}/wk`}
-                  selected={weekly === option}
-                  onPress={() => setWeekly(option)}
+          <FadeInUp delay={60}>
+            <Card style={styles.chartCard}>
+              <ThemedText type="smallBold">Net worth · last 12 months</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                Savings balance anchored to your real numbers, walked by monthly net.
+              </ThemedText>
+              <ExpandableChart
+                title="Net worth"
+                subtitle="Savings balance, month by month"
+                renderExpanded={() => (
+                  <>
+                    <LineChart
+                      height={320}
+                      series={[{ points: netWorth.points, color: chartPalette.steelBlue, area: true }]}
+                      legend={[{ label: 'Savings balance', color: chartPalette.steelBlue }]}
+                    />
+                    <ChartValueTable
+                      columns={['Month', 'Balance', 'Change']}
+                      highlightLast
+                      rows={netWorth.points.map((point, index) => {
+                        const previous = netWorth.points[index - 1]?.value ?? point.value;
+                        const change = point.value - previous;
+                        return [
+                          point.label,
+                          formatMoney(point.value),
+                          `${change >= 0 ? '+' : '−'}${formatMoney(Math.abs(change))}`,
+                        ];
+                      })}
+                    />
+                  </>
+                )}>
+                <LineChart
+                  height={170}
+                  series={[{ points: netWorth.points, color: chartPalette.steelBlue, area: true }]}
+                  legend={[{ label: 'Savings balance', color: chartPalette.steelBlue }]}
                 />
-              ))}
-            </View>
-            <LineChart
-              height={150}
-              series={[{ points: education, color: theme.primary, area: true }]}
-            />
-          </Card>
+              </ExpandableChart>
+            </Card>
+          </FadeInUp>
+
+          <FadeInUp delay={130}>
+            <Card style={styles.chartCard}>
+              <ThemedText type="smallBold">The compounding curve</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                {formatMoney(weekly)}/week invested at a {Math.round(EDUCATION_RETURN * 100)}% average
+                annual return ≈ {formatMoney(educationFinal)} after {EDUCATION_YEARS} years.
+              </ThemedText>
+              <View style={styles.weeklyChips}>
+                {WEEKLY_OPTIONS.map((option) => (
+                  <ToggleChip
+                    key={option}
+                    label={`${formatMoney(option)}/wk`}
+                    selected={weekly === option}
+                    onPress={() => setWeekly(option)}
+                  />
+                ))}
+              </View>
+              <ExpandableChart
+                title="The compounding curve"
+                subtitle={`${formatMoney(weekly)}/week at ${Math.round(EDUCATION_RETURN * 100)}% average annual return`}
+                renderExpanded={() => (
+                  <>
+                    <LineChart
+                      height={320}
+                      series={[{ points: education, color: theme.primary, area: true }]}
+                    />
+                    <ChartValueTable
+                      columns={['Year', 'Balance', 'Contributed']}
+                      highlightLast
+                      rows={education.map((point, index) => [
+                        point.label,
+                        formatMoney(point.value),
+                        formatMoney(weekly * 52 * (index + 1)),
+                      ])}
+                    />
+                  </>
+                )}>
+                <LineChart
+                  height={150}
+                  series={[{ points: education, color: theme.primary, area: true }]}
+                />
+              </ExpandableChart>
+            </Card>
+          </FadeInUp>
 
           <SpeechBubble expression="default">
             Where does 7% come from? It&apos;s the long-run average of a broad stock index fund —

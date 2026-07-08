@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { FadeInUp } from '@/components/penny-motion';
 import {
   Card,
   PANEL_BOTTOM_INSET,
@@ -63,6 +64,7 @@ export default function AffordScreen() {
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
+        <FadeInUp>
         <Card style={styles.inputCard}>
           <ThemedText type="small" themeColor="textSecondary">
             How much is it?
@@ -97,8 +99,10 @@ export default function AffordScreen() {
             Run the forecast
           </PillButton>
         </Card>
+        </FadeInUp>
 
         {verdict ? (
+          <FadeInUp distance={18}>
           <Card style={[styles.verdictCard, { borderColor: verdictColor }]}>
             <View style={styles.verdictHead}>
               <View style={styles.verdictCopy}>
@@ -116,6 +120,7 @@ export default function AffordScreen() {
             <ThemedText type="small">{reason}</ThemedText>
             <SpeechBubble expression={verdictMascot}>{affordVerdicts[verdict].penny}</SpeechBubble>
           </Card>
+          </FadeInUp>
         ) : (
           <View style={styles.contextRow}>
             <ThemedText type="small" themeColor="textSecondary">

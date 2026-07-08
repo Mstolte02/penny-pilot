@@ -13,7 +13,9 @@ import {
   View,
 } from 'react-native';
 
+import { ChartValueTable, ExpandableChart } from '@/components/chart-expander';
 import { LineChart } from '@/components/mini-charts';
+import { FadeInUp } from '@/components/penny-motion';
 import {
   Card,
   PANEL_BOTTOM_INSET,
@@ -25,7 +27,7 @@ import {
   ToggleChip,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
-import { chartPalette, Radius, Spacing } from '@/constants/theme';
+import { chartPalette, colorForCategory, Radius, Spacing } from '@/constants/theme';
 import { BUDGET_STYLE_KEY } from '@/constants/penny-voice';
 import { iconForCategory } from '@/constants/category-icons';
 import { mobileSavingsConfig } from '@/data/personal-finance-template';
@@ -216,6 +218,18 @@ export default function PlanScreen() {
   };
 
   const sections = useMemo(() => {
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const spentByCategory = new Map<string, number>();
+    for (const transaction of transactions) {
+      if (transaction.type !== 'expense') continue;
+      if (monthKey(transaction.date) !== currentMonth) continue;
+      spentByCategory.set(
+        transaction.category,
+        (spentByCategory.get(transaction.category) ?? 0) + transaction.moneyOut
+      );
+    }
+
     const byTitle = new Map<string, { title: string; lines: PlanLine[]; capacity: number }>();
     for (const line of lines) {
       const entry =
@@ -227,8 +241,9 @@ export default function PlanScreen() {
     return Array.from(byTitle.values()).map((section) => ({
       ...section,
       capacity: Math.max(0, section.capacity + (adjustments[section.title] ?? 0)),
+      spent: spentByCategory.get(section.title) ?? 0,
     }));
-  }, [lines, adjustments]);
+  }, [lines, adjustments, transactions]);
 
   const monthlyIncome = useMemo(() => {
     const incomeByMonth = new Map<string, number>();
@@ -686,11 +701,15 @@ export default function PlanScreen() {
             />
           ) : null}
 
-          {budgetStyle === 'guided-flexible' ? sections.map((section) => {
+          {budgetStyle === 'guided-flexible' ? sections.map((section, sectionIndex) => {
             const selected = moveMode && (moveFrom === section.title || moveTo === section.title);
+            const sectionColor = colorForCategory(section.title, sectionIndex);
+            const spentFraction =
+              section.capacity > 0 ? Math.min(section.spent / section.capacity, 1) : 0;
+            const overspent = section.capacity > 0 && section.spent > section.capacity;
             return (
+              <FadeInUp key={section.title} delay={Math.min(sectionIndex * 45, 270)}>
               <Pressable
-                key={section.title}
                 onPress={() => {
                   if (moveMode) {
                     if (!moveFrom) setMoveFrom(section.title);
@@ -704,20 +723,29 @@ export default function PlanScreen() {
                 <Card
                   style={StyleSheet.flatten([
                     styles.gaugeCard,
-                    selected && { borderColor: theme.primary, borderWidth: 2 },
+                    { borderLeftWidth: 4, borderLeftColor: sectionColor },
+                    selected && { borderColor: theme.primary, borderWidth: 2, borderLeftWidth: 4 },
                   ])}>
                   <View style={styles.planSectionHead}>
-                    <View style={[styles.categoryIconTile, { backgroundColor: theme.backgroundSelected }]}>
-                      <Ionicons name={iconForCategory(section.title)} size={18} color={theme.primary} />
+                    <View style={[styles.categoryIconTile, { backgroundColor: `${sectionColor}2E` }]}>
+                      <Ionicons name={iconForCategory(section.title)} size={18} color={sectionColor} />
                     </View>
                     <View style={styles.destinationCopy}>
                       <ThemedText type="section">{section.title}</ThemedText>
                       <ThemedText type="small" themeColor="textSecondary">
-                        {section.lines.length} {section.lines.length === 1 ? 'line' : 'lines'}
+                        {section.capacity > 0
+                          ? `${formatMoney(section.spent)} spent of ${formatMoney(section.capacity)} this month`
+                          : `${section.lines.length} ${section.lines.length === 1 ? 'line' : 'lines'}`}
                       </ThemedText>
                     </View>
                     <ThemedText type="money">{formatMoney(section.capacity)}</ThemedText>
                   </View>
+                  {section.capacity > 0 ? (
+                    <ProgressBar
+                      value={spentFraction}
+                      color={overspent ? theme.danger : sectionColor}
+                    />
+                  ) : null}
                   {openSection === section.title && !moveMode ? (
                     <View style={styles.lineList}>
                       {section.lines.map((line) => (
@@ -788,6 +816,7 @@ export default function PlanScreen() {
                   ) : null}
                 </Card>
               </Pressable>
+              </FadeInUp>
             );
           }) : null}
 
@@ -886,39 +915,85 @@ export default function PlanScreen() {
                 />
               ))}
             </View>
-            <LineChart
-              height={180}
-              formatValue={(value) => formatMoney(value)}
-              series={[
-                {
-                  points: projection.points.map((point) => ({
-                    label: shortMonth(point.month),
-                    value: point.actual,
-                  })),
-                  color: chartPalette.steelBlue,
-                  area: true,
-                },
-                {
-                  points: projection.points.map((point) => ({
-                    label: shortMonth(point.month),
-                    value: point.budgeted,
-                  })),
-                  color: theme.textSecondary,
-                  dashed: true,
-                },
-              ]}
-              markers={projection.markerIndexes.map((pointIndex) => ({
-                seriesIndex: 0,
-                pointIndex,
-              }))}
-              legend={[
-                { label: 'Actual pace', color: chartPalette.steelBlue },
-                { label: 'Budgeted plan', color: theme.textSecondary, dashed: true },
-              ]}
-            />
+            <ExpandableChart
+              title="Savings projection"
+              subtitle={`Actual pace ${formatMoney(projection.actualPace)}/mo vs the budgeted plan`}
+              renderExpanded={() => (
+                <>
+                  <LineChart
+                    height={320}
+                    formatValue={(value) => formatMoney(value)}
+                    series={[
+                      {
+                        points: projection.points.map((point) => ({
+                          label: shortMonth(point.month),
+                          value: point.actual,
+                        })),
+                        color: chartPalette.steelBlue,
+                        area: true,
+                      },
+                      {
+                        points: projection.points.map((point) => ({
+                          label: shortMonth(point.month),
+                          value: point.budgeted,
+                        })),
+                        color: theme.textSecondary,
+                        dashed: true,
+                      },
+                    ]}
+                    markers={projection.markerIndexes.map((pointIndex) => ({
+                      seriesIndex: 0,
+                      pointIndex,
+                    }))}
+                    legend={[
+                      { label: 'Actual pace', color: chartPalette.steelBlue },
+                      { label: 'Budgeted plan', color: theme.textSecondary, dashed: true },
+                    ]}
+                  />
+                  <ChartValueTable
+                    columns={['Month', 'Actual pace', 'Budgeted plan']}
+                    rows={projection.points.map((point) => [
+                      shortMonth(point.month),
+                      formatMoney(point.actual),
+                      formatMoney(point.budgeted),
+                    ])}
+                  />
+                </>
+              )}>
+              <LineChart
+                height={180}
+                formatValue={(value) => formatMoney(value)}
+                series={[
+                  {
+                    points: projection.points.map((point) => ({
+                      label: shortMonth(point.month),
+                      value: point.actual,
+                    })),
+                    color: chartPalette.steelBlue,
+                    area: true,
+                  },
+                  {
+                    points: projection.points.map((point) => ({
+                      label: shortMonth(point.month),
+                      value: point.budgeted,
+                    })),
+                    color: theme.textSecondary,
+                    dashed: true,
+                  },
+                ]}
+                markers={projection.markerIndexes.map((pointIndex) => ({
+                  seriesIndex: 0,
+                  pointIndex,
+                }))}
+                legend={[
+                  { label: 'Actual pace', color: chartPalette.steelBlue },
+                  { label: 'Budgeted plan', color: theme.textSecondary, dashed: true },
+                ]}
+              />
+            </ExpandableChart>
             <ThemedText type="small" themeColor="textSecondary">
-              Tap the graph to inspect actual and budgeted balances. Penny chooses the projection
-              model behind the scenes as history grows · current pace {formatMoney(projection.actualPace)}/mo.
+              Tap the graph to expand it with every month&apos;s numbers. Penny chooses the
+              projection model behind the scenes as history grows.
             </ThemedText>
           </Card>
 
@@ -1095,43 +1170,89 @@ function StyledBudgetLayout({
 
   if (styleValue === 'fifty-thirty-twenty') {
     const rows = [
-      { label: 'Needs · 50%', target: monthlyIncome * 0.5, sections: needs },
-      { label: 'Wants · 30%', target: monthlyIncome * 0.3, sections: wants },
-      { label: 'Savings and debt · 20%', target: monthlyIncome * 0.2, sections: savings },
+      {
+        label: 'Needs',
+        pct: '50%',
+        icon: 'home' as const,
+        color: chartPalette.steelBlue,
+        target: monthlyIncome * 0.5,
+        sections: needs,
+        blurb: 'Housing, transport, groceries — the keep-the-lights-on money.',
+      },
+      {
+        label: 'Wants',
+        pct: '30%',
+        icon: 'sparkles' as const,
+        color: '#C98A3B',
+        target: monthlyIncome * 0.3,
+        sections: wants,
+        blurb: 'Fun, dining out, subscriptions — the life-worth-living money.',
+      },
+      {
+        label: 'Savings & debt',
+        pct: '20%',
+        icon: 'trending-up' as const,
+        color: '#5FA98B',
+        target: monthlyIncome * 0.2,
+        sections: savings,
+        blurb: 'Future-you money: goals, investing, and extra debt payoff.',
+      },
     ];
     return (
       <View style={styles.styleLayout}>
-        {rows.map((row) => {
+        {rows.map((row, rowIndex) => {
           const planned = row.sections.reduce((sum, section) => sum + section.capacity, 0);
+          const target = row.target || planned;
+          const over = target > 0 && planned > target;
           return (
-            <Card key={row.label} style={styles.ruleCard}>
-              <View style={styles.styleLayoutHead}>
-                <ThemedText type="section" style={styles.styleLayoutTitle} numberOfLines={1}>
-                  {row.label}
-                </ThemedText>
-                <ThemedText
-                  type="money"
-                  style={styles.styleLayoutAmount}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.55}>
-                  {formatMoney(planned)} / {formatMoney(row.target || planned)}
-                </ThemedText>
-              </View>
-              <ProgressBar value={(row.target || planned) > 0 ? planned / (row.target || planned) : 0} />
-              <View style={styles.styleLineList}>
-                {row.sections.flatMap((section) =>
-                  section.lines.map((line) => (
-                    <StyleLineAmountRow
-                      key={line.id}
-                      line={line}
-                      sectionLabel={section.title}
-                      onUpdateLine={onUpdateLine}
-                    />
-                  ))
-                )}
-              </View>
-            </Card>
+            <FadeInUp key={row.label} delay={rowIndex * 70}>
+              <Card style={StyleSheet.flatten([styles.ruleCard, { borderLeftWidth: 4, borderLeftColor: row.color }])}>
+                <View style={styles.styleLayoutHead}>
+                  <View style={[styles.categoryIconTile, { backgroundColor: `${row.color}2E` }]}>
+                    <Ionicons name={row.icon} size={18} color={row.color} />
+                  </View>
+                  <View style={styles.styleLayoutCopy}>
+                    <View style={styles.ruleTitleRow}>
+                      <ThemedText type="section" numberOfLines={1} style={styles.styleLayoutTitle}>
+                        {row.label}
+                      </ThemedText>
+                      <View style={[styles.rulePctBadge, { backgroundColor: `${row.color}2E` }]}>
+                        <ThemedText type="smallBold" style={{ color: row.color, fontSize: 11.5 }}>
+                          {row.pct}
+                        </ThemedText>
+                      </View>
+                    </View>
+                    <ThemedText type="small" themeColor="textSecondary" numberOfLines={2}>
+                      {row.blurb}
+                    </ThemedText>
+                  </View>
+                </View>
+                <View style={styles.ruleAmountRow}>
+                  <ThemedText type="money" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+                    {formatMoney(planned)}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                    of {formatMoney(target)} target ·{' '}
+                    {over
+                      ? `${formatMoney(planned - target)} over`
+                      : `${formatMoney(target - planned)} of headroom`}
+                  </ThemedText>
+                </View>
+                <ProgressBar value={target > 0 ? planned / target : 0} color={over ? theme.warning : row.color} />
+                <View style={styles.styleLineList}>
+                  {row.sections.flatMap((section) =>
+                    section.lines.map((line) => (
+                      <StyleLineAmountRow
+                        key={line.id}
+                        line={line}
+                        sectionLabel={section.title}
+                        onUpdateLine={onUpdateLine}
+                      />
+                    ))
+                  )}
+                </View>
+              </Card>
+            </FadeInUp>
           );
         })}
       </View>
@@ -1141,50 +1262,90 @@ function StyledBudgetLayout({
   if (styleValue === 'zero-based') {
     const assigned = sections.reduce((sum, section) => sum + section.capacity, 0);
     const toAssign = monthlyIncome - assigned;
+    const balanced = Math.abs(toAssign) < 1;
+    const assignColor = balanced ? theme.success : toAssign < 0 ? theme.danger : theme.warning;
     return (
-      <Card style={styles.zeroCard}>
-        <View style={[styles.zeroAssign, { backgroundColor: theme.backgroundSelected }]}>
-          <ThemedText type="smallBold" style={{ color: theme.warning }}>To be assigned</ThemedText>
-          <ThemedText type="money" style={{ color: theme.warning }}>{formatMoney(toAssign)}</ThemedText>
-        </View>
-        {sections.flatMap((section) => section.lines).slice(0, 12).map((line) => {
-          return (
-            <View key={line.id} style={[styles.zeroRow, { borderTopColor: theme.border }]}>
-              <View style={styles.destinationCopy}>
-                <ThemedText type="smallBold" numberOfLines={1}>{line.name}</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-                  {line.section}
-                </ThemedText>
-              </View>
-              <BudgetAmountInput
-                value={line.amount}
-                onChange={(amount) => onUpdateLine(line.id, { amount })}
-              />
+      <FadeInUp>
+        <Card style={styles.zeroCard}>
+          <View style={[styles.zeroAssign, { backgroundColor: `${assignColor}1F`, borderColor: assignColor }]}>
+            <View style={styles.destinationCopy}>
+              <ThemedText type="smallBold" style={{ color: assignColor }}>
+                {balanced ? 'Every dollar assigned ✓' : toAssign < 0 ? 'Over-assigned' : 'To be assigned'}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                {balanced
+                  ? 'Income minus assignments lands on zero — the whole point.'
+                  : toAssign < 0
+                    ? 'Trim the amounts below until this reads zero.'
+                    : 'Give these dollars a job below until this reads zero.'}
+              </ThemedText>
             </View>
-          );
-        })}
-      </Card>
+            <ThemedText type="money" style={{ color: assignColor, fontSize: 22 }}>
+              {formatMoney(Math.abs(toAssign))}
+            </ThemedText>
+          </View>
+          {sections.flatMap((section) => section.lines).slice(0, 12).map((line, lineIndex) => {
+            return (
+              <View
+                key={line.id}
+                style={[
+                  styles.zeroRow,
+                  lineIndex % 2 === 1 && { backgroundColor: theme.backgroundSelected },
+                ]}>
+                <View
+                  style={[
+                    styles.zeroRowDot,
+                    { backgroundColor: colorForCategory(line.section, lineIndex) },
+                  ]}
+                />
+                <View style={styles.destinationCopy}>
+                  <ThemedText type="smallBold" numberOfLines={1}>{line.name}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                    {line.section}
+                  </ThemedText>
+                </View>
+                <BudgetAmountInput
+                  value={line.amount}
+                  onChange={(amount) => onUpdateLine(line.id, { amount })}
+                />
+              </View>
+            );
+          })}
+        </Card>
+      </FadeInUp>
     );
   }
 
   return (
     <View style={styles.envelopeGrid}>
-      {sections.flatMap((section) => section.lines.map((line) => ({ section, line }))).slice(0, 10).map(({ section, line }) => {
+      {sections.flatMap((section) => section.lines.map((line) => ({ section, line }))).slice(0, 10).map(({ section, line }, envelopeIndex) => {
+        const envelopeColor = colorForCategory(section.title, envelopeIndex);
         return (
-          <Card key={line.id} style={styles.envelopeCard}>
-            <ThemedText type="smallBold" numberOfLines={1}>{line.name}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-              {section.title}
-            </ThemedText>
-            <BudgetAmountInput
-              value={line.amount}
-              onChange={(amount) => onUpdateLine(line.id, { amount })}
-              large
-            />
-            <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
-              planned monthly
-            </ThemedText>
-          </Card>
+          <FadeInUp
+            key={line.id}
+            delay={Math.min(envelopeIndex * 40, 240)}
+            style={styles.envelopeSlot}>
+            <Card style={styles.envelopeCard}>
+              <View style={[styles.envelopeFlap, { backgroundColor: envelopeColor }]} />
+              <View style={styles.envelopeHead}>
+                <Ionicons name={iconForCategory(section.title)} size={15} color={envelopeColor} />
+                <ThemedText type="smallBold" numberOfLines={1} style={styles.envelopeName}>
+                  {line.name}
+                </ThemedText>
+              </View>
+              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                {section.title}
+              </ThemedText>
+              <BudgetAmountInput
+                value={line.amount}
+                onChange={(amount) => onUpdateLine(line.id, { amount })}
+                large
+              />
+              <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+                in this envelope monthly
+              </ThemedText>
+            </Card>
+          </FadeInUp>
         );
       })}
     </View>
@@ -1643,13 +1804,33 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   styleLayoutTitle: {
-    flex: 1,
+    flexShrink: 1,
     minWidth: 0,
   },
   styleLayoutAmount: {
     maxWidth: '52%',
     flexShrink: 1,
     textAlign: 'right',
+  },
+  styleLayoutCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  ruleTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  rulePctBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  ruleAmountRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Spacing.two,
   },
   styleLineList: {
     gap: Spacing.one,
@@ -1666,8 +1847,10 @@ const styles = StyleSheet.create({
   },
   zeroAssign: {
     borderRadius: Radius.control,
+    borderWidth: 1.5,
     padding: Spacing.three,
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
@@ -1675,18 +1858,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-    borderTopWidth: 1,
-    paddingTop: Spacing.two,
+    borderRadius: 12,
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+  },
+  zeroRowDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   envelopeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.two,
   },
-  envelopeCard: {
+  envelopeSlot: {
     width: '48%',
+  },
+  envelopeCard: {
+    width: '100%',
     minHeight: 150,
-    gap: Spacing.two,
+    gap: Spacing.one,
+    overflow: 'hidden',
+    paddingTop: Spacing.three + 4,
+  },
+  envelopeFlap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 5,
+  },
+  envelopeHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  envelopeName: {
+    flex: 1,
+    minWidth: 0,
   },
   envelopeAmountInput: {
     width: '100%',

@@ -42,8 +42,6 @@ type TrendBarsProps = {
   height?: number;
   /** Color bars by sign (green when >= 0, red when negative) instead of accent/primary. */
   signed?: boolean;
-  /** Trailing moving-average window drawn as a dotted line. 0 hides it. */
-  averageWindow?: number;
   /** Formats the value shown in the tap tooltip. */
   formatValue?: (value: number) => string;
   /** Optional plan/budget line. */
@@ -54,15 +52,15 @@ type TrendBarsProps = {
 };
 
 /**
- * Compact bars for a value over time with a dotted trailing-average line. Bars are thin so
- * many months fit; scaled from a lifted baseline (not 0) so month-to-month differences read.
- * No per-bar number labels — the shape does the talking; the latest bar is highlighted.
+ * Compact bars for a value over time. Honest zero baseline (bars are proportional to
+ * their values), slim floating columns with the latest month highlighted in copper,
+ * and an optional dashed plan line. Tap a bar for its exact number; the expanded
+ * view prints every number via `showValues`.
  */
 export function TrendBars({
   data,
   height = 128,
   signed,
-  averageWindow = 3,
   formatValue,
   targetValue,
   targetLabel = 'Plan',
@@ -76,47 +74,19 @@ export function TrendBars({
   const includedValues = targetValue === undefined ? values : [...values, targetValue];
   const max = Math.max(...includedValues, 1);
   const min = Math.min(...includedValues, 0);
-  // Lift the baseline when everything is positive so small deltas read as tall/short bars.
-  const base = min > 0 ? min - (max - min) * 0.5 - 1 : min;
+  // Bars start at zero (or the most negative value in signed mode) so heights
+  // are proportional to the numbers — no amplified pseudo-differences.
+  const base = Math.min(0, min);
   const span = Math.max(max - base, 1);
   const plotHeight = height - 20;
-  const heightFor = (value: number) => Math.max(3, ((value - base) / span) * plotHeight);
+  const heightFor = (value: number) => Math.max(3, ((value - base) / span) * (plotHeight - 14));
   const yFor = (value: number) => plotHeight - heightFor(value);
 
-  const averages =
-    averageWindow > 0 && data.length > 1
-      ? values.map((_, index) => {
-          const start = Math.max(0, index - averageWindow + 1);
-          const window = values.slice(start, index + 1);
-          return window.reduce((sum, value) => sum + value, 0) / window.length;
-        })
-      : null;
   const latest = values[values.length - 1] ?? 0;
   const previous = values[values.length - 2] ?? latest;
   const avg = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
   const latestLabel = data[data.length - 1]?.label ?? 'Latest';
   const delta = latest - previous;
-
-  // Build a dotted line by interpolating small dots along the average polyline.
-  const dots: { x: number; y: number }[] = [];
-  if (averages && plotWidth > 0) {
-    const slot = plotWidth / data.length;
-    const points = averages.map((avg, index) => ({
-      x: (index + 0.5) * slot,
-      y: yFor(avg),
-    }));
-    const spacing = 6;
-    for (let i = 0; i < points.length - 1; i += 1) {
-      const a = points[i];
-      const b = points[i + 1];
-      const distance = Math.hypot(b.x - a.x, b.y - a.y);
-      const steps = Math.max(1, Math.round(distance / spacing));
-      for (let step = 0; step <= steps; step += 1) {
-        const t = step / steps;
-        dots.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
-      }
-    }
-  }
 
   const format = formatValue ?? ((value: number) => String(Math.round(value)));
   const columnWidth = data.length > 0 ? plotWidth / data.length : 0;
@@ -160,10 +130,7 @@ export function TrendBars({
         </View>
       </View>
       <View
-        style={[
-          styles.trendPlot,
-          { height: plotHeight, backgroundColor: theme.backgroundElement, borderColor: theme.border },
-        ]}
+        style={[styles.trendPlot, { height: plotHeight, borderBottomColor: theme.border }]}
         onLayout={(event) => setPlotWidth(event.nativeEvent.layout.width)}>
         {[0.25, 0.5, 0.75].map((line) => (
           <View
@@ -182,7 +149,9 @@ export function TrendBars({
             ? point.value >= 0
               ? theme.success
               : theme.danger
-            : chartPalette.steelBlue;
+            : isLast || isSelected
+              ? theme.primary
+              : chartPalette.steelBlue;
 
           return (
             <Pressable
@@ -215,26 +184,18 @@ export function TrendBars({
                   </View>
                 </View>
               ) : null}
-              <View
+              <Animated.View
                 style={[
-                  styles.barBackplate,
-                  { backgroundColor: signed ? theme.background : theme.backgroundSelected },
-                ]}>
-                <Animated.View
-                  style={[
                   styles.trendBar,
                   {
                     height: heightFor(point.value),
                     backgroundColor: color,
-                    opacity: isLast || isSelected ? 1 : 0.72,
-                    borderWidth: isSelected ? 2 : 0,
-                    borderColor: theme.text,
+                    opacity: isLast || isSelected ? 1 : 0.62,
                     transformOrigin: 'bottom',
                     transform: [{ scaleY: grow }],
                   },
                 ]}
-                />
-              </View>
+              />
             </Pressable>
           );
         })}
@@ -246,19 +207,6 @@ export function TrendBars({
                 {targetLabel}
               </ThemedText>
             </View>
-          </View>
-        ) : null}
-        {dots.length > 0 ? (
-          <View pointerEvents="none" style={styles.trendOverlay}>
-            {dots.map((dot, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.trendDot,
-                  { left: dot.x - 1.5, top: dot.y - 1.5, backgroundColor: theme.text },
-                ]}
-              />
-            ))}
           </View>
         ) : null}
         {selected !== null && plotWidth > 0 ? (
@@ -861,11 +809,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 5,
     width: '100%',
-    borderWidth: 1,
-    borderRadius: 22,
-    overflow: 'hidden',
-    paddingHorizontal: Spacing.two,
-    paddingTop: Spacing.two,
+    borderBottomWidth: 1,
   },
   trendColumn: {
     flex: 1,
@@ -874,19 +818,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minWidth: 0,
   },
-  barBackplate: {
-    width: '72%',
-    minWidth: 7,
-    height: '100%',
-    borderRadius: 999,
-    justifyContent: 'flex-end',
-    overflow: 'hidden',
-  },
   trendBar: {
-    width: '100%',
+    width: '46%',
+    maxWidth: 26,
+    minWidth: 6,
     minHeight: 4,
-    borderTopLeftRadius: 999,
-    borderTopRightRadius: 999,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
   },
   barValue: {
     position: 'absolute',
@@ -907,19 +845,6 @@ const styles = StyleSheet.create({
   barValueTextRotated: {
     fontSize: 9.5,
     transform: [{ rotate: '-52deg' }],
-  },
-  trendOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  trendDot: {
-    position: 'absolute',
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
   },
   tooltip: {
     position: 'absolute',

@@ -277,7 +277,7 @@ export function buildImportPreviewFromRows(
   const headerIndex = findHeaderRow(rawRows);
   const rows = headerIndex === -1 ? rawRows : rawRows.slice(headerIndex);
   if (rows.length < 2) {
-    return { error: 'That file looks empty — it needs a header row plus at least one transaction.' };
+    return { error: 'That file looks empty. It needs a header row and at least one transaction.' };
   }
 
   const header = rows[0].map(cellText);
@@ -286,7 +286,7 @@ export function buildImportPreviewFromRows(
   if (!columns) {
     return {
       error:
-        'Could not find the expected columns. Penny looks for a date, a description/merchant, and either an amount or debit/credit columns.',
+        "Couldn't find the right columns. Penny needs a date, a description or merchant, and an amount (or debit/credit columns).",
     };
   }
 

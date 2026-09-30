@@ -7,9 +7,9 @@
     "icon": "./assets/images/icon.png",
     "scheme": "pennypilot",
     "userInterfaceStyle": "automatic",
-    "backgroundColor": "#FAF7F2",
+    "backgroundColor": "#F3EBDD",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.pennypilot.finance",
       "associatedDomains": [
         "applinks:penny-pilot.net"
@@ -21,7 +21,7 @@
     "android": {
       "package": "com.pennypilot.finance",
       "adaptiveIcon": {
-        "backgroundColor": "#FAF7F2",
+        "backgroundColor": "#D6ECF4",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -37,11 +37,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#FAF7F2",
-          "android": {
-            "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
-          }
+          "backgroundColor": "#F3EBDD",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 160
         }
       ],
       "expo-secure-store"

@@ -27,7 +27,7 @@ export function PennyBriefing({ insights }: { insights: PennyInsight[] }) {
       onPress={insights.length > 1 ? advance : undefined}
       accessibilityRole={insights.length > 1 ? 'button' : undefined}
       accessibilityLabel={
-        insights.length > 1 ? 'Penny’s briefing — tap for the next insight' : 'Penny’s briefing'
+        insights.length > 1 ? 'Penny’s briefing. Tap for the next insight.' : 'Penny’s briefing'
       }>
       <Card style={styles.card}>
         <View style={styles.head}>
@@ -37,7 +37,7 @@ export function PennyBriefing({ insights }: { insights: PennyInsight[] }) {
               PENNY&apos;S BRIEFING
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Computed from your own numbers, just now
+              Based on your own numbers, just now
             </ThemedText>
           </View>
           {insights.length > 1 ? (

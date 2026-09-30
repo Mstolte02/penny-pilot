@@ -7,7 +7,7 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
 
 /** Bars grow up from the baseline on mount; collapses to static under reduced motion. */
-function useGrowOnMount() {
+export function useGrowOnMount() {
   const reducedMotion = useReducedMotion();
   const [grow] = useState(() => new Animated.Value(reducedMotion ? 1 : 0));
 
@@ -768,7 +768,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: LINE_TOOLTIP_WIDTH,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 5,
     paddingVertical: 6,
     paddingHorizontal: 8,
     gap: 4,
@@ -834,7 +834,7 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   barValueChip: {
-    borderRadius: 999,
+    borderRadius: 3,
     borderWidth: 1,
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -850,7 +850,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: TOOLTIP_WIDTH,
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 5,
     paddingVertical: 4,
     paddingHorizontal: 8,
     alignItems: 'center',
@@ -872,7 +872,7 @@ const styles = StyleSheet.create({
   rankedRow: {
     gap: Spacing.two,
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 5,
     padding: Spacing.three,
   },
   rankedTop: {
@@ -918,14 +918,14 @@ const styles = StyleSheet.create({
   },
   rankedTrack: {
     height: 12,
-    borderRadius: 999,
+    borderRadius: 2,
     overflow: 'hidden',
     borderWidth: 1,
     position: 'relative',
   },
   rankedFill: {
     height: '100%',
-    borderRadius: 999,
+    borderRadius: 2,
   },
   rankedKnob: {
     position: 'absolute',
@@ -951,7 +951,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     top: -11,
-    borderRadius: 999,
+    borderRadius: 3,
     paddingHorizontal: 7,
     paddingVertical: 2,
   },

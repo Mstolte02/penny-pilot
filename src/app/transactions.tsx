@@ -62,7 +62,7 @@ function dayLabel(date: string) {
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Transactions are not available right now.';
+  return error instanceof Error ? error.message : "Can't load transactions right now.";
 }
 
 const confidenceDisplay: Record<
@@ -468,7 +468,7 @@ export default function TransactionsScreen() {
         setImportError(
           preview.duplicates > 0
             ? 'Every row in that file is already imported.'
-            : 'No readable transactions found in that file.'
+            : "Penny couldn't find any transactions in that file."
         );
         return;
       }
@@ -476,11 +476,11 @@ export default function TransactionsScreen() {
     } catch (importFailure) {
       if (importFailureNeedsRebuild(importFailure)) {
         setImportError(
-          'This app build is missing the file picker — it needs one rebuild (eas build --profile development-device). Until then, imports work on the web version (note: each device keeps its own local data for now).'
+          'This app build is missing the file picker and needs one rebuild (eas build --profile development-device). Until then, imports work on the web version, but each device keeps its own local data for now.'
         );
         return;
       }
-      setImportError('Could not read that file. Make sure it is a CSV or Excel export from your bank.');
+      setImportError("Couldn't read that file. Check that it's a CSV or Excel export from your bank.");
     }
   };
 
@@ -627,7 +627,7 @@ export default function TransactionsScreen() {
                   <ThemedText type="small" themeColor="textSecondary">
                     {radarCount === 0
                       ? `${Math.max(0, sortedCount)} sorted. New imports land here when they need a category.`
-                      : 'Quick sort — Penny remembers every correction you make.'}
+                      : 'Sort them here. Penny remembers every fix you make.'}
                   </ThemedText>
                 </View>
               </View>
@@ -655,7 +655,7 @@ export default function TransactionsScreen() {
                   <ThemedText type="smallBold">Manual & imported</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
                     Import a CSV or Excel export from your bank, or add cash and Venmo by hand.
-                    Everything lands in your reports and the Logbook — this tab stays for reviewing.
+                    Everything goes into your reports and the Logbook. This tab is for reviewing.
                   </ThemedText>
                 </View>
               </View>
@@ -689,25 +689,25 @@ export default function TransactionsScreen() {
               {showFormatHelp ? (
                 <View style={[styles.formatHelp, { backgroundColor: theme.backgroundSelected }]}>
                   <ThemedText type="small">
-                    A CSV, XLS, or XLSX export with a header row and these columns — most bank
-                    exports already match:
+                    A CSV, XLS, or XLSX export with a header row and these columns. Most bank
+                    exports already match.
                   </ThemedText>
                   <ThemedText type="small">
-                    <ThemedText type="smallBold">1. Date</ThemedText> — named Date, Transaction
+                    <ThemedText type="smallBold">1. Date:</ThemedText> called Date, Transaction
                     Date, Posted Date, or Posting Date.
                   </ThemedText>
                   <ThemedText type="small">
-                    <ThemedText type="smallBold">2. Description</ThemedText> — named Description,
+                    <ThemedText type="smallBold">2. Description:</ThemedText> called Description,
                     Merchant, Name, Payee, or Memo.
                   </ThemedText>
                   <ThemedText type="small">
-                    <ThemedText type="smallBold">3. Amount</ThemedText> — either one signed Amount
+                    <ThemedText type="smallBold">3. Amount:</ThemedText> either one signed Amount
                     column (negative = spent), or two columns like Debit/Credit, Money Out/Money
                     In, or Withdrawal/Deposit.
                   </ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    Extra columns are ignored. Duplicates are skipped automatically, and the file
-                    never leaves this device.
+                    Penny ignores extra columns and skips duplicates. The file never leaves this
+                    device.
                   </ThemedText>
                 </View>
               ) : null}
@@ -755,7 +755,7 @@ export default function TransactionsScreen() {
                     : null}
                   {showRecent ? (
                     <ThemedText type="small" themeColor="textSecondary">
-                      Tap an entry to correct it. The full history lives in the Logbook.
+                      Tap an entry to fix it. The full history is in the Logbook.
                     </ThemedText>
                   ) : null}
                 </>
@@ -816,7 +816,7 @@ export default function TransactionsScreen() {
 
           {visibleSubscriptions.length === 0 ? (
             <SpeechBubble expression="thinking">
-              {showHistoricalSubscriptions ? 'No historical subscriptions archived yet.' : emptyStates.noSubscriptions}
+              {showHistoricalSubscriptions ? 'No historical subscriptions yet.' : emptyStates.noSubscriptions}
             </SpeechBubble>
           ) : (
             visibleSubscriptions.map((subscription) => (
@@ -833,7 +833,7 @@ export default function TransactionsScreen() {
                     <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
                       {subscription.active
                         ? `Active as of ${dayLabel(subscription.activeAsOf)}`
-                        : `${dayLabel(subscription.firstSeen)} – ${dayLabel(subscription.lastSeen)}`}
+                        : `${dayLabel(subscription.firstSeen)} to ${dayLabel(subscription.lastSeen)}`}
                     </ThemedText>
                   </View>
                   <ThemedText type="money" style={{ fontSize: 17 }}>
@@ -881,8 +881,8 @@ export default function TransactionsScreen() {
           )}
 
           <SpeechBubble expression="default">
-            Forgotten subscriptions are the sneakiest leaks in a budget. Flag anything you
-            don&apos;t recognize.
+            Subscriptions you forgot about add up fast. Flag anything you don&apos;t
+            recognize.
           </SpeechBubble>
         </ScrollView>
       )}
@@ -979,13 +979,13 @@ export default function TransactionsScreen() {
                 </ThemedText>
                 {importPreview.duplicates > 0 ? (
                   <ThemedText type="small" themeColor="textSecondary">
-                    {importPreview.duplicates} already imported — skipped automatically.
+                    {importPreview.duplicates} already imported, so Penny will skip them.
                   </ThemedText>
                 ) : null}
                 {importPreview.uncategorized > 0 ? (
                   <ThemedText type="small" themeColor="warning">
-                    {importPreview.uncategorized} new merchants Penny couldn&apos;t categorize yet —
-                    they&apos;ll import as Uncategorized for you to fix.
+                    {importPreview.uncategorized} new merchants Penny couldn&apos;t categorize yet.
+                    They&apos;ll come in as Uncategorized for you to fix.
                   </ThemedText>
                 ) : null}
                 {importPreview.warnings.map((warning) => (
@@ -994,7 +994,7 @@ export default function TransactionsScreen() {
                   </ThemedText>
                 ))}
                 <SpeechBubble expression="happy">
-                  Everything parses on this device — your bank file never leaves it.
+                  Penny reads this file right on your device. It never gets uploaded.
                 </SpeechBubble>
                 <View style={styles.importActions}>
                   <PillButton tone="primary" onPress={confirmImport}>
@@ -1301,7 +1301,7 @@ function TransferReviewModal({
               </ThemedText>
               <ThemedText type="money">{formatTransactionMoney(current.amount)}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                {dayLabel(current.date)} · transfer candidate {queue.length > 1 ? `· ${queue.length} left` : ''}
+                {dayLabel(current.date)} · possible transfer {queue.length > 1 ? `· ${queue.length} left` : ''}
               </ThemedText>
             </View>
           ) : null}
@@ -1377,7 +1377,7 @@ function LocalReviewModal({
             />
           ) : (
             <>
-              <SpeechBubble expression="celebrating">Radar is clear — every import has a category.</SpeechBubble>
+              <SpeechBubble expression="celebrating">Radar is clear. Every import has a category.</SpeechBubble>
               <PillButton tone="primary" onPress={onClose}>Done</PillButton>
             </>
           )}
@@ -1488,7 +1488,7 @@ function LocalReviewBody({
           </View>
         </View>
       ) : (
-        <PillButton onPress={() => setAddingCategory(true)}>Add Category/Subcategory</PillButton>
+        <PillButton onPress={() => setAddingCategory(true)}>Add category/subcategory</PillButton>
       )}
 
       <View style={styles.editorActions}>
@@ -1581,8 +1581,8 @@ function SimilarReviewModal({
           ]}>
           <ThemedText type="section">Apply to similar rows?</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Penny found other imports with the same merchant signature. Amounts closest to this one
-            are listed first; uncheck anything that is not the same kind of purchase.
+            Penny found other imports that look like the same merchant. The closest amounts are
+            first. Tap to uncheck anything that isn&apos;t the same kind of purchase.
           </ThemedText>
           {state ? (
             <SimilarReviewBody
@@ -1707,7 +1707,7 @@ function TransactionEditorModal({
                 <View style={styles.manualCopy}>
                   <ThemedText type="section">{draft?.title ?? 'Transaction'}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">
-                    You can fix a row any time if the export, category, or amount feels off.
+                    Fix anything that looks off. You can edit this again any time.
                   </ThemedText>
                 </View>
               </View>
@@ -1935,7 +1935,7 @@ const styles = StyleSheet.create({
   },
   budgetFlag: {
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 3,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.one + 2,
   },
@@ -1954,7 +1954,7 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     maxHeight: '88%',
     borderWidth: 1,
-    borderRadius: Radius.card + 6,
+    borderRadius: Radius.card,
     padding: Spacing.four,
     gap: Spacing.three,
   },
@@ -1963,7 +1963,7 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     maxHeight: '88%',
     borderWidth: 1,
-    borderRadius: Radius.card + 6,
+    borderRadius: Radius.card,
     padding: Spacing.four,
     gap: Spacing.three,
   },

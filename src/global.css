@@ -6,7 +6,7 @@
     Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
-  --font-rounded:
+  --font-rounded: Nunito_600SemiBold,
     Nunito, 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 }
@@ -15,13 +15,13 @@
 html,
 body,
 #root {
-  background-color: #faf7f2;
+  background-color: #f3ebdd;
 }
 
 @media (prefers-color-scheme: dark) {
   html,
   body,
   #root {
-    background-color: #161311;
+    background-color: #141a2a;
   }
 }

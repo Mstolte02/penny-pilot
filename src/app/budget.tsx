@@ -30,11 +30,11 @@ import { ThemedText } from '@/components/themed-text';
 import { chartPalette, colorForCategory, Radius, Spacing } from '@/constants/theme';
 import { BUDGET_STYLE_KEY } from '@/constants/penny-voice';
 import { iconForCategory } from '@/constants/category-icons';
+import { LuggageTag, Medal } from '@/components/flight-deck';
 import { mobileSavingsConfig } from '@/data/personal-finance-template';
 import type { BudgetStyle } from '@/domain/finance';
 import {
   avgForecast,
-  EWMA_ALPHA,
   formatMoney,
   formatMonth,
   monthKey,
@@ -59,12 +59,34 @@ const SEGMENTS = [
 
 const MOVE_AMOUNTS = [25, 50, 100];
 
-const METHOD_OPTIONS: { label: string; value: ForecastMethod }[] = [
-  { label: '3-mo avg', value: 'avg3' },
-  { label: '6-mo avg', value: 'avg6' },
-  { label: '9-mo avg', value: 'avg9' },
-  { label: '12-mo avg', value: 'avg12' },
-  { label: 'EWMA', value: 'ewma' },
+// Plain names for the forecast methods. The math (3/6/9/12-month averages and an
+// exponentially weighted average) stays behind the scenes.
+const METHOD_OPTIONS: { label: string; value: ForecastMethod; description: string }[] = [
+  {
+    label: 'Short term',
+    value: 'avg3',
+    description: 'Based on your last few months. Picks up changes quickly.',
+  },
+  {
+    label: 'Medium term',
+    value: 'avg6',
+    description: 'Based on about the last half year. A good fit for most lines.',
+  },
+  {
+    label: 'Long term',
+    value: 'avg9',
+    description: 'Based on most of the past year. One odd month barely moves it.',
+  },
+  {
+    label: 'Annual',
+    value: 'avg12',
+    description: 'Based on a full year, so seasonal costs like holidays even out.',
+  },
+  {
+    label: 'Momentum',
+    value: 'ewma',
+    description: 'Follows where your spending is heading. Recent months count most.',
+  },
 ];
 
 const HORIZON_OPTIONS = [
@@ -78,25 +100,25 @@ const BUDGET_STYLE_OPTIONS: { label: string; value: BudgetStyle; explainer: stri
     label: 'Guided flexible',
     value: 'guided-flexible',
     explainer:
-      'Penny keeps flexible lines tuned to your history; fixed bills stay put. The easiest default.',
+      'Penny sets flexible lines from your spending history and leaves fixed bills alone. Easiest to start with.',
   },
   {
     label: '50/30/20',
     value: 'fifty-thirty-twenty',
     explainer:
-      '50% of income to needs, 30% to wants, 20% to savings — Penny grades your plan against those targets below.',
+      '50% of income to needs, 30% to wants, 20% to savings. Penny checks your plan against those targets below.',
   },
   {
     label: 'Zero-based',
     value: 'zero-based',
     explainer:
-      'Every dollar gets a job before the month starts: income minus assignments should land on exactly zero.',
+      'Every dollar gets a job before the month starts. Income minus what you assign should come out to zero.',
   },
   {
     label: 'Envelopes',
     value: 'envelopes',
     explainer:
-      'Each category gauge is an envelope of cash. When it runs empty, spending there pauses — or you consciously move money in.',
+      'Each category is an envelope of cash. When one runs empty, you stop spending there or move money in.',
   },
 ];
 
@@ -150,7 +172,7 @@ function chooseSavingsProjectionPace(values: number[]) {
 }
 
 function methodLabel(method: ForecastMethod) {
-  return method === 'ewma' ? `EWMA α ${EWMA_ALPHA}` : `${method.replace('avg', '')}-mo average`;
+  return METHOD_OPTIONS.find((option) => option.value === method)?.label ?? 'Medium term';
 }
 
 function shortMonth(month: string) {
@@ -526,7 +548,7 @@ export default function PlanScreen() {
               : `Need by ${formatMonth(selectedGoal.targetDate)} · behind by ${lateBy} mo`
           : actualMonth
             ? `Expected by ${formatMonth(actualMonth)} · ${Math.round(progress * 100)}% of the way there`
-            : `${Math.round(progress * 100)}% there · arrival beyond this projection`,
+            : `${Math.round(progress * 100)}% there · arrives after this projection`,
     };
   }, [projection.points, selectedGoal]);
 
@@ -534,7 +556,7 @@ export default function PlanScreen() {
     <Screen
       eyebrow="Plan"
       title="Plan"
-      subtitle="Your standing monthly plan and the goals beyond it"
+      subtitle="Your monthly plan and your savings goals"
       mascot={<PennyBadge expression={overCommitted ? 'concerned' : 'happy'} />}
       segments={SEGMENTS}
       active={active}
@@ -623,7 +645,7 @@ export default function PlanScreen() {
                 type="small"
                 style={{ color: overCommitted ? theme.danger : theme.success }}>
                 {overCommitted
-                  ? `Assignments exceed income by ${formatMoney(Math.abs(savingsTarget))} — trim a category to get back to zero.`
+                  ? `You've assigned ${formatMoney(Math.abs(savingsTarget))} more than your income. Trim a category to get back to zero.`
                   : `${formatMoney(monthlyIncome)} income − ${formatMoney(totalCapacity)} assigned − ${formatMoney(Math.max(0, savingsTarget))} to goals = $0 · every dollar has a job ✓`}
               </ThemedText>
             ) : null}
@@ -656,7 +678,7 @@ export default function PlanScreen() {
                 {!moveFrom
                   ? 'Tap the category to take money from'
                   : !moveTo
-                    ? `From ${moveFrom} — now tap the category to add to`
+                    ? `From ${moveFrom}. Now tap the category to add to`
                     : `${moveFrom} → ${moveTo}`}
               </ThemedText>
               {moveFrom && moveTo ? (
@@ -723,23 +745,24 @@ export default function PlanScreen() {
                 <Card
                   style={StyleSheet.flatten([
                     styles.gaugeCard,
-                    { borderLeftWidth: 4, borderLeftColor: sectionColor },
-                    selected && { borderColor: theme.primary, borderWidth: 2, borderLeftWidth: 4 },
+                    selected && { borderColor: theme.primary, borderWidth: 2, borderBottomWidth: 3 },
                   ])}>
                   <View style={styles.planSectionHead}>
-                    <View style={[styles.categoryIconTile, { backgroundColor: `${sectionColor}2E` }]}>
-                      <Ionicons name={iconForCategory(section.title)} size={18} color={sectionColor} />
-                    </View>
+                    <Medal icon={iconForCategory(section.title)} color={sectionColor} size={40} />
                     <View style={styles.destinationCopy}>
                       <ThemedText type="section">{section.title}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
+                      <ThemedText type="eyebrow" themeColor="textSecondary" style={styles.sectionTagline}>
                         {section.capacity > 0
-                          ? `${formatMoney(section.spent)} spent of ${formatMoney(section.capacity)} this month`
+                          ? `${formatMoney(section.spent)} spent of ${formatMoney(section.capacity)}`
                           : `${section.lines.length} ${section.lines.length === 1 ? 'line' : 'lines'}`}
                       </ThemedText>
                     </View>
-                    <ThemedText type="money">{formatMoney(section.capacity)}</ThemedText>
                   </View>
+                  <LuggageTag color={sectionColor} height={38}>
+                    <ThemedText type="section" style={styles.sectionTagValue} numberOfLines={1}>
+                      {formatMoney(section.capacity)}
+                    </ThemedText>
+                  </LuggageTag>
                   {section.capacity > 0 ? (
                     <ProgressBar
                       value={spentFraction}
@@ -782,6 +805,19 @@ export default function PlanScreen() {
                               </ThemedText>
                             </Pressable>
                           </View>
+                          {section.capacity > 0 ? (
+                            <View style={styles.lineShare}>
+                              <ThemedText type="eyebrow" themeColor="textSecondary" style={styles.lineShareLabel}>
+                                {Math.round((line.amount / section.capacity) * 100)}% of category
+                              </ThemedText>
+                              <View style={{ flex: 1 }}>
+                                <ProgressBar
+                                  value={Math.min(line.amount / section.capacity, 1)}
+                                  color={sectionColor}
+                                />
+                              </View>
+                            </View>
+                          ) : null}
                           <View style={styles.lineControls}>
                             <ToggleChip
                               label="Fixed"
@@ -826,8 +862,8 @@ export default function PlanScreen() {
 
           <SpeechBubble expression={overCommitted ? 'concerned' : 'default'}>
             {moveMode
-              ? 'Moved amounts stay moved — the plan is yours to balance.'
-              : 'Tap a category to edit, rename, or delete its lines — the categories are yours, not Penny’s.'}
+              ? 'What you move stays moved. Balancing the plan is up to you.'
+              : 'Tap a category to edit, rename, or delete its lines. Set them up however you like.'}
           </SpeechBubble>
         </ScrollView>
       ) : (
@@ -992,8 +1028,8 @@ export default function PlanScreen() {
               />
             </ExpandableChart>
             <ThemedText type="small" themeColor="textSecondary">
-              Tap the graph to expand it with every month&apos;s numbers. Penny chooses the
-              projection model behind the scenes as history grows.
+              Tap the graph to see every month&apos;s numbers. Penny picks the projection method
+              based on how much history you have.
             </ThemedText>
           </Card>
 
@@ -1002,7 +1038,7 @@ export default function PlanScreen() {
               <View style={styles.destinationCopy}>
                 <ThemedText type="smallBold">Planned expenses</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  One-time expenses that should bend the savings curve before they happen.
+                  Upcoming one-time costs, built into the savings curve.
                 </ThemedText>
               </View>
               <PillButton tone="primary" onPress={() => openExpenseEditor()}>
@@ -1039,8 +1075,8 @@ export default function PlanScreen() {
           <SpeechBubble
             expression={projection.actualPace >= (selectedGoal?.monthlyTarget ?? 0) ? 'onTrack' : 'thinking'}>
             {projection.actualPace >= (selectedGoal?.monthlyTarget ?? 0)
-              ? 'Actual pace is running ahead of the plan — the arrival date is safe.'
-              : 'Pace is a touch behind plan. Moving a little budget toward savings pulls the arrival date closer.'}
+              ? 'You’re keeping up with the plan, so the arrival date looks safe.'
+              : 'You’re a bit behind plan. Shifting some budget to savings would bring the arrival date closer.'}
           </SpeechBubble>
         </ScrollView>
       )}
@@ -1177,7 +1213,7 @@ function StyledBudgetLayout({
         color: chartPalette.steelBlue,
         target: monthlyIncome * 0.5,
         sections: needs,
-        blurb: 'Housing, transport, groceries — the keep-the-lights-on money.',
+        blurb: 'Housing, transport, groceries: the keep-the-lights-on money.',
       },
       {
         label: 'Wants',
@@ -1186,7 +1222,7 @@ function StyledBudgetLayout({
         color: '#C98A3B',
         target: monthlyIncome * 0.3,
         sections: wants,
-        blurb: 'Fun, dining out, subscriptions — the life-worth-living money.',
+        blurb: 'Dining out, subscriptions, and other fun.',
       },
       {
         label: 'Savings & debt',
@@ -1206,11 +1242,9 @@ function StyledBudgetLayout({
           const over = target > 0 && planned > target;
           return (
             <FadeInUp key={row.label} delay={rowIndex * 70}>
-              <Card style={StyleSheet.flatten([styles.ruleCard, { borderLeftWidth: 4, borderLeftColor: row.color }])}>
+              <Card style={styles.ruleCard}>
                 <View style={styles.styleLayoutHead}>
-                  <View style={[styles.categoryIconTile, { backgroundColor: `${row.color}2E` }]}>
-                    <Ionicons name={row.icon} size={18} color={row.color} />
-                  </View>
+                  <Medal icon={row.icon} color={row.color} size={40} />
                   <View style={styles.styleLayoutCopy}>
                     <View style={styles.ruleTitleRow}>
                       <ThemedText type="section" numberOfLines={1} style={styles.styleLayoutTitle}>
@@ -1274,7 +1308,7 @@ function StyledBudgetLayout({
               </ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
                 {balanced
-                  ? 'Income minus assignments lands on zero — the whole point.'
+                  ? 'Income minus what you assign comes out to zero.'
                   : toAssign < 0
                     ? 'Trim the amounts below until this reads zero.'
                     : 'Give these dollars a job below until this reads zero.'}
@@ -1443,7 +1477,7 @@ function MoveConfirmModal({
             </View>
           </View>
           <SpeechBubble expression="thinking">
-            I support your autonomy, but want to check in and make sure this is the right move. Are you sure?
+            Your call. I just want to double-check before I move it.
           </SpeechBubble>
           <View style={styles.addActions}>
             <PillButton tone="primary" onPress={onConfirm}>
@@ -1660,30 +1694,32 @@ function MethodModal({
           ]}>
           <ThemedText type="section">How should Penny set “{line?.name}”?</ThemedText>
 
-          <View style={[styles.methodExplainer, { backgroundColor: theme.backgroundSelected }]}>
-            <ThemedText type="smallBold">N-month average</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Your typical spend over the last N months, weighted equally. Steady and predictable —
-              good for stable categories like groceries.
-            </ThemedText>
-          </View>
-          <View style={[styles.methodExplainer, { backgroundColor: theme.backgroundSelected }]}>
-            <ThemedText type="smallBold">EWMA (recent months count more)</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              An exponentially weighted average (α {EWMA_ALPHA}): last month matters most, older
-              months fade out. Reacts faster when your habits change.
-            </ThemedText>
-          </View>
-
-          <View style={styles.chips}>
-            {METHOD_OPTIONS.map((option) => (
-              <ToggleChip
-                key={option.value}
-                label={option.label}
-                selected={selected === option.value}
-                onPress={() => setSelected(option.value)}
-              />
-            ))}
+          <View style={styles.methodList}>
+            {METHOD_OPTIONS.map((option) => {
+              const on = selected === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: on }}
+                  onPress={() => setSelected(option.value)}
+                  style={[
+                    styles.methodExplainer,
+                    {
+                      backgroundColor: on ? theme.backgroundElement : theme.backgroundSelected,
+                      borderColor: on ? theme.navy : theme.borderStrong,
+                    },
+                  ]}>
+                  <ThemedText type="smallBold" style={on ? { color: theme.navy } : null}>
+                    {on ? '● ' : '○ '}
+                    {option.label}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {option.description}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
           </View>
 
           <ThemedText type="small" themeColor="textSecondary">
@@ -1768,6 +1804,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
+  sectionTagline: {
+    fontSize: 10,
+    lineHeight: 14,
+    letterSpacing: 1.2,
+  },
+  sectionTagValue: {
+    color: '#FFFCF5',
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  lineShare: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  lineShareLabel: {
+    fontSize: 10,
+    letterSpacing: 1,
+  },
   categoryIconTile: {
     width: 34,
     height: 34,
@@ -1823,7 +1878,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   rulePctBadge: {
-    borderRadius: 999,
+    borderRadius: 3,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
@@ -1858,7 +1913,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-    borderRadius: 12,
+    borderRadius: 4,
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.two,
   },
@@ -1923,7 +1978,7 @@ const styles = StyleSheet.create({
   },
   lineNameInput: {
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 4,
     paddingHorizontal: Spacing.two,
     paddingVertical: 3,
     fontSize: 14,
@@ -1956,7 +2011,7 @@ const styles = StyleSheet.create({
   amountInput: {
     width: 84,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 4,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
     textAlign: 'right',
@@ -2010,7 +2065,7 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     maxHeight: '88%',
     borderWidth: 1,
-    borderRadius: Radius.card + 6,
+    borderRadius: Radius.card,
     padding: Spacing.four,
     gap: Spacing.three,
   },
@@ -2032,9 +2087,14 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     fontSize: 15,
   },
+  methodList: {
+    gap: Spacing.two,
+  },
   methodExplainer: {
     borderRadius: Radius.control,
-    padding: Spacing.three,
-    gap: Spacing.one,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two + 2,
+    gap: 2,
   },
 });

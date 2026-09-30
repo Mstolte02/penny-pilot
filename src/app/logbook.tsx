@@ -1,8 +1,17 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  CategoryTrendChart,
+  CategoryTrendPager,
+  ChartLegend,
+  compactMoney,
+  type CategoryTrend,
+} from '@/components/category-trend-grid';
 import { ChartValueTable, ExpandableChart } from '@/components/chart-expander';
-import { LineChart, TrendBars } from '@/components/mini-charts';
+import { LineChart } from '@/components/mini-charts';
 import { FadeInUp } from '@/components/penny-motion';
 import {
   Card,
@@ -24,11 +33,10 @@ import {
   monthKey,
   monthlyIncome,
   monthlySpend,
-  summarizeBudget,
   uniqueMonths,
 } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
-import { planFromLines, useFinance } from '@/services/finance-store';
+import { useFinance } from '@/services/finance-store';
 
 const SEGMENTS = [
   { label: 'Monthly report', value: 'report' },
@@ -36,11 +44,22 @@ const SEGMENTS = [
 ];
 
 const WEEKLY_OPTIONS = [25, 50, 100];
+/** Months shown in every category small-multiple — uniform so cards compare cleanly. */
+const CATEGORY_WINDOW = 8;
 const EDUCATION_YEARS = 10;
 const EDUCATION_RETURN = 0.07;
 
 function shortMonth(month: string) {
   return formatMonth(month).replace(/ \d{2}(\d{2})$/, " '$1");
+}
+
+function normalizeName(value: string) {
+  return value.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** Loose name match for plan-section ↔ transaction-category drift ("Food and dining" ↔ "Food"). Never matches on empty strings. */
+function namesMatchLoosely(a: string, b: string) {
+  return a === b || (a.length > 0 && b.length > 0 && (a.includes(b) || b.includes(a)));
 }
 
 function dayOfMonthLabel(date: string) {
@@ -81,9 +100,22 @@ export default function LogbookScreen() {
     const spends = monthlySpend(transactions);
     const income = monthlyIncome(transactions);
     const net = actualMonthlyNet(transactions);
-    const budget = summarizeBudget(planFromLines(planLines), transactions);
-    return { months, spends, income, net, budget };
-  }, [transactions, planLines]);
+    return { months, spends, income, net };
+  }, [transactions]);
+
+  // Budget targets come straight from the plan-line amounts the user sets in
+  // the Plan tab. summarizeBudget is deliberately NOT used here: it re-forecasts
+  // flexible lines from matched actuals (ignoring the configured amount), which
+  // makes every budget line shadow recent averages instead of the actual plan.
+  const planTargets = useMemo(() => {
+    const bySection = new Map<string, number>();
+    let total = 0;
+    for (const line of planLines) {
+      bySection.set(line.section, (bySection.get(line.section) ?? 0) + line.amount);
+      total += line.amount;
+    }
+    return { bySection, total };
+  }, [planLines]);
 
   const [month, setMonth] = useState(() => base.months[base.months.length - 1] ?? '');
 
@@ -142,6 +174,73 @@ export default function LogbookScreen() {
     };
   }, [base, month, transactions]);
 
+  // Total-spend trend in the same visual language as the category cards: heat
+  // bars plus a trailing 3-month average, with the plan total as the target.
+  const spendTrend = useMemo(() => {
+    const values = report.series.map((point) => point.value);
+    const avg = values.map((_, index) => {
+      const slice = values.slice(Math.max(0, index - 2), index + 1);
+      if (slice.every((value) => value === 0)) return null;
+      return slice.reduce((sum, value) => sum + value, 0) / slice.length;
+    });
+    const dataMax = Math.max(
+      ...values,
+      ...avg.filter((value): value is number => value !== null),
+      1
+    );
+    const target = planTargets.total;
+    return { points: report.series, avg, target, showTarget: target > 0 && target <= dataMax * 1.3 };
+  }, [report.series, planTargets.total]);
+
+  // One small-multiple per category over a shared month window: monthly totals,
+  // a trailing 3-month average (missing months count as $0 so the line decays
+  // honestly), and the plan section's total as the budget target when one matches.
+  const categoryTrends = useMemo<CategoryTrend[]>(() => {
+    const window = base.months.slice(-CATEGORY_WINDOW);
+    if (window.length === 0) return [];
+    const indexByMonth = new Map(window.map((m, index) => [m, index]));
+    const sums = new Map<string, number[]>();
+    for (const transaction of transactions) {
+      if (transaction.type !== 'expense') continue;
+      const index = indexByMonth.get(monthKey(transaction.date));
+      if (index === undefined) continue;
+      const row = sums.get(transaction.category) ?? new Array<number>(window.length).fill(0);
+      row[index] += transaction.moneyOut;
+      sums.set(transaction.category, row);
+    }
+    const labels = window.map(shortMonth);
+    return Array.from(sums.entries())
+      .map(([name, values]) => ({
+        name,
+        points: values.map((value, index) => ({ label: labels[index], value })),
+        avg: values.map((_, index) => {
+          const slice = values.slice(Math.max(0, index - 2), index + 1);
+          if (slice.every((value) => value === 0)) return null;
+          return slice.reduce((sum, value) => sum + value, 0) / slice.length;
+        }),
+        target: targetForCategory(name),
+        total: values.reduce((sum, value) => sum + value, 0),
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    function targetForCategory(name: string) {
+      const exact = planTargets.bySection.get(name);
+      if (exact !== undefined) return exact;
+      const key = normalizeName(name);
+      for (const [section, total] of planTargets.bySection) {
+        if (namesMatchLoosely(normalizeName(section), key)) return total;
+      }
+      return undefined;
+    }
+  }, [base, transactions, planTargets]);
+
+  const drillTrend = openCategory
+    ? (categoryTrends.find((trend) => trend.name === openCategory) ?? null)
+    : null;
+  const drillDetail = openCategory
+    ? (report.categories.find((category) => category.name === openCategory) ?? null)
+    : null;
+
   const netWorth = useMemo(() => {
     // Anchor the trendline to the real savings balance at its as-of month, then
     // walk monthly net backward and forward from there.
@@ -180,13 +279,13 @@ export default function LogbookScreen() {
     formatMoney(report.netM),
   ];
   const kpiLongest = Math.max(...kpiValues.map((value) => value.length));
-  const kpiSize = kpiLongest <= 6 ? 20 : kpiLongest <= 8 ? 17 : 15;
+  const kpiSize = kpiLongest <= 6 ? 18 : kpiLongest <= 8 ? 15.5 : 13.5;
 
   return (
     <Screen
       eyebrow="Logbook"
       title="Logbook"
-      subtitle="Reports, history, and the long game"
+      subtitle="Monthly reports and net worth"
       mascot={<PennyBadge expression={netUp ? 'onTrack' : 'thinking'} />}
       segments={SEGMENTS}
       active={active}
@@ -230,144 +329,182 @@ export default function LogbookScreen() {
               <ThemedText type="smallBold">Spending trend · last 12 months</ThemedText>
               <ExpandableChart
                 title="Spending trend"
-                subtitle="Monthly spending vs your plan, with every number"
+                subtitle="Monthly spending vs your plan"
                 renderExpanded={() => (
                   <>
-                    <TrendBars
-                      data={report.series}
+                    <CategoryTrendChart
+                      points={spendTrend.points}
+                      avg={spendTrend.avg}
+                      target={spendTrend.target}
                       height={300}
-                      showValues
-                      formatValue={(value) => formatMoney(value)}
-                      targetValue={base.budget.totalExpenses}
-                      targetLabel="Plan"
                     />
+                    <ChartLegend showTarget={spendTrend.showTarget} />
                     <ChartValueTable
                       columns={['Month', 'Spent', 'vs plan']}
                       highlightLast
                       rows={report.series.map((point) => [
                         point.label,
                         formatMoney(point.value),
-                        `${point.value <= base.budget.totalExpenses ? '−' : '+'}${formatMoney(
-                          Math.abs(point.value - base.budget.totalExpenses)
+                        `${point.value <= planTargets.total ? '−' : '+'}${formatMoney(
+                          Math.abs(point.value - planTargets.total)
                         )}`,
                       ])}
                     />
                   </>
                 )}>
-                <TrendBars
-                  data={report.series}
-                  height={140}
-                  formatValue={(value) => formatMoney(value)}
-                  targetValue={base.budget.totalExpenses}
-                  targetLabel="Plan"
+                <CategoryTrendChart
+                  points={spendTrend.points}
+                  avg={spendTrend.avg}
+                  target={spendTrend.target}
+                  height={150}
                 />
+                <ChartLegend showTarget={spendTrend.showTarget} />
               </ExpandableChart>
             </Card>
           </FadeInUp>
 
-          <FadeInUp delay={130}>
-          <Card style={styles.drillCard}>
-            <ThemedText type="smallBold">Where it went · {shortMonth(month)}</ThemedText>
-
-            <View style={styles.compositionBar}>
-              {report.categories.map((category) => (
-                <View
-                  key={category.name}
-                  style={{
-                    flex: Math.max(category.share, 0.02),
-                    backgroundColor: category.color,
-                  }}
-                />
-              ))}
+          <FadeInUp delay={130} style={styles.categorySection}>
+            <View style={styles.sectionHead}>
+              <ThemedText type="smallBold">Spending by category</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                Bars = actual · Blue dots = 3-mo avg · Gold dashes = budget target
+              </ThemedText>
             </View>
-
-            {report.categories.map((category) => {
-              const open = openCategory === category.name;
-              return (
-                <View key={category.name}>
-                  <Pressable
-                    onPress={() => {
-                      setOpenCategory(open ? null : category.name);
-                      setOpenSub(null);
-                    }}
-                    style={({ pressed }) => [styles.drillRow, { opacity: pressed ? 0.7 : 1 }]}>
-                    <View style={[styles.drillDot, { backgroundColor: category.color }]} />
-                    <ThemedText type="smallBold" numberOfLines={1} style={styles.drillName}>
-                      {category.name}
-                    </ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" style={styles.drillShare}>
-                      {Math.round(category.share * 100)}%
-                    </ThemedText>
-                    <ThemedText type="money">{formatMoney(category.value)}</ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary" style={styles.drillChevron}>
-                      {open ? '▾' : '▸'}
-                    </ThemedText>
-                  </Pressable>
-
-                  {open
-                    ? category.subs.map((sub) => {
-                        const subKey = `${category.name}::${sub.name}`;
-                        const subOpen = openSub === subKey;
-                        return (
-                          <View key={subKey}>
-                            <Pressable
-                              onPress={() => setOpenSub(subOpen ? null : subKey)}
-                              style={({ pressed }) => [
-                                styles.drillSubRow,
-                                { opacity: pressed ? 0.7 : 1 },
-                              ]}>
-                              <View
-                                style={[
-                                  styles.drillDotSmall,
-                                  { backgroundColor: category.color, opacity: 0.55 },
-                                ]}
-                              />
-                              <ThemedText type="small" numberOfLines={1} style={styles.drillName}>
-                                {sub.name}
-                              </ThemedText>
-                              <ThemedText type="money" style={styles.drillSubValue}>
-                                {formatMoney(sub.value)}
-                              </ThemedText>
-                              <ThemedText
-                                type="small"
-                                themeColor="textSecondary"
-                                style={styles.drillChevron}>
-                                {subOpen ? '▾' : '▸'}
-                              </ThemedText>
-                            </Pressable>
-                            {subOpen
-                              ? sub.transactions.map((transaction) => (
-                                  <View key={transaction.id} style={styles.drillTxnRow}>
-                                    <ThemedText
-                                      type="small"
-                                      themeColor="textSecondary"
-                                      numberOfLines={1}
-                                      style={styles.drillName}>
-                                      {transaction.item} · {dayOfMonthLabel(transaction.date)}
-                                    </ThemedText>
-                                    <ThemedText type="small" style={styles.txnAmount}>
-                                      {formatMoney(transaction.amount)}
-                                    </ThemedText>
-                                  </View>
-                                ))
-                              : null}
-                          </View>
-                        );
-                      })
-                    : null}
-                </View>
-              );
-            })}
-            <ThemedText type="small" themeColor="textSecondary">
-              Tap a category for subcategories, tap again for the transactions behind it.
-            </ThemedText>
-          </Card>
+            <CategoryTrendPager
+              categories={categoryTrends}
+              formatValue={compactMoney}
+              onPressCategory={(name) => {
+                setOpenCategory(name);
+                setOpenSub(null);
+              }}
+            />
           </FadeInUp>
+
+          <Modal
+            visible={openCategory !== null}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={() => setOpenCategory(null)}>
+            <View style={[styles.drillSheet, { backgroundColor: theme.background }]}>
+              <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={styles.drillSheetSafe}>
+                <View style={styles.drillSheetHead}>
+                  <View style={styles.drillSheetCopy}>
+                    <ThemedText type="section">{openCategory}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Monthly spend and 3-mo average
+                      {drillTrend?.target ? ` · budget ${formatMoney(drillTrend.target)}/mo` : ''}
+                    </ThemedText>
+                  </View>
+                  <Pressable
+                    onPress={() => setOpenCategory(null)}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close category details"
+                    style={[
+                      styles.drillClose,
+                      { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                    ]}>
+                    <Ionicons name="close" size={20} color={theme.text} />
+                  </Pressable>
+                </View>
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.drillSheetBody}>
+                  {drillTrend ? (
+                    <>
+                      <CategoryTrendChart
+                        points={drillTrend.points}
+                        avg={drillTrend.avg}
+                        target={drillTrend.target}
+                        height={240}
+                      />
+                      <ChartValueTable
+                        columns={['Month', 'Spent', '3-mo avg']}
+                        highlightLast
+                        rows={drillTrend.points.map((point, index) => {
+                          const avgValue = drillTrend.avg[index];
+                          return [
+                            point.label,
+                            formatMoney(point.value),
+                            avgValue === null ? '—' : formatMoney(avgValue),
+                          ];
+                        })}
+                      />
+                    </>
+                  ) : null}
+
+                  <ThemedText type="smallBold">
+                    Where {shortMonth(month)}&apos;s spending went
+                  </ThemedText>
+                  {drillDetail ? (
+                    drillDetail.subs.map((sub) => {
+                      const subKey = `${drillDetail.name}::${sub.name}`;
+                      const subOpen = openSub === subKey;
+                      return (
+                        <View key={subKey}>
+                          <Pressable
+                            onPress={() => setOpenSub(subOpen ? null : subKey)}
+                            style={({ pressed }) => [
+                              styles.drillSubRow,
+                              { opacity: pressed ? 0.7 : 1 },
+                            ]}>
+                            <View
+                              style={[
+                                styles.drillDotSmall,
+                                { backgroundColor: drillDetail.color, opacity: 0.55 },
+                              ]}
+                            />
+                            <ThemedText type="small" numberOfLines={1} style={styles.drillName}>
+                              {sub.name}
+                            </ThemedText>
+                            <ThemedText type="money" style={styles.drillSubValue}>
+                              {formatMoney(sub.value)}
+                            </ThemedText>
+                            <ThemedText
+                              type="small"
+                              themeColor="textSecondary"
+                              style={styles.drillChevron}>
+                              {subOpen ? '▾' : '▸'}
+                            </ThemedText>
+                          </Pressable>
+                          {subOpen
+                            ? sub.transactions.map((transaction) => (
+                                <View key={transaction.id} style={styles.drillTxnRow}>
+                                  <ThemedText
+                                    type="small"
+                                    themeColor="textSecondary"
+                                    numberOfLines={1}
+                                    style={styles.drillName}>
+                                    {transaction.item} · {dayOfMonthLabel(transaction.date)}
+                                  </ThemedText>
+                                  <ThemedText type="small" style={styles.txnAmount}>
+                                    {formatMoney(transaction.amount)}
+                                  </ThemedText>
+                                </View>
+                              ))
+                            : null}
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <ThemedText type="small" themeColor="textSecondary">
+                      No {openCategory} spending in {shortMonth(month)}.
+                    </ThemedText>
+                  )}
+                  {drillDetail ? (
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Tap a subcategory to see its transactions.
+                    </ThemedText>
+                  ) : null}
+                </ScrollView>
+              </SafeAreaView>
+            </View>
+          </Modal>
 
           <SpeechBubble expression={netUp ? 'happy' : 'thinking'}>
             {netUp
-              ? `${shortMonth(month)} ended ${formatMoney(report.netM)} in the black. Logged.`
-              : `${shortMonth(month)} drew down ${formatMoney(Math.abs(report.netM))}. Some months do — the log keeps it honest.`}
+              ? `${shortMonth(month)} ended ${formatMoney(report.netM)} in the black. Nice flying.`
+              : `${shortMonth(month)} drew down ${formatMoney(Math.abs(report.netM))}. Some months do, and that's okay.`}
           </SpeechBubble>
         </ScrollView>
       ) : (
@@ -389,7 +526,7 @@ export default function LogbookScreen() {
             <Card style={styles.chartCard}>
               <ThemedText type="smallBold">Net worth · last 12 months</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                Savings balance anchored to your real numbers, walked by monthly net.
+                Starts from your real savings balance and moves by each month&apos;s net.
               </ThemedText>
               <ExpandableChart
                 title="Net worth"
@@ -471,11 +608,11 @@ export default function LogbookScreen() {
           </FadeInUp>
 
           <SpeechBubble expression="default">
-            Where does 7% come from? It&apos;s the long-run average of a broad stock index fund —
-            for money you won&apos;t touch for 5+ years. Short-term money like your emergency and
-            home funds belongs in a high-yield savings account instead: around{' '}
+            Why 7%? It&apos;s the long-run average of a broad stock index fund, for money you
+            won&apos;t touch for 5+ years. Keep short-term money, like your emergency and home
+            funds, in a high-yield savings account: around{' '}
             {(mobileSavingsConfig.savingsApy * 100).toFixed(1)}% APY right now, with no market
-            swings. Markets go down some years — time in, not timing, is what earns the average.
+            swings. Markets drop some years. Staying invested is what earns the average.
           </SpeechBubble>
         </ScrollView>
       )}
@@ -501,26 +638,42 @@ const styles = StyleSheet.create({
   kpiTile: {
     flex: 1,
   },
-  drillCard: {
+  categorySection: {
     gap: Spacing.two,
   },
-  compositionBar: {
-    flexDirection: 'row',
-    height: 14,
-    borderRadius: 7,
-    overflow: 'hidden',
-    gap: 2,
+  sectionHead: {
+    gap: Spacing.half,
   },
-  drillRow: {
+  drillSheet: {
+    flex: 1,
+  },
+  drillSheetSafe: {
+    flex: 1,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.three,
+    gap: Spacing.two,
+  },
+  drillSheetHead: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-    paddingVertical: Spacing.one + 2,
   },
-  drillDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  drillSheetCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  drillClose: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  drillSheetBody: {
+    gap: Spacing.three,
+    paddingBottom: Spacing.six,
   },
   drillDotSmall: {
     width: 8,
@@ -531,10 +684,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  drillShare: {
-    width: 38,
-    textAlign: 'right',
-  },
   drillChevron: {
     width: 14,
     textAlign: 'center',
@@ -543,8 +692,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-    paddingVertical: Spacing.one,
-    paddingLeft: Spacing.four,
+    paddingVertical: Spacing.one + 2,
   },
   drillSubValue: {
     fontSize: 13,
@@ -554,7 +702,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
     paddingVertical: 3,
-    paddingLeft: Spacing.five + Spacing.two,
+    paddingLeft: Spacing.four,
   },
   txnAmount: {
     fontVariant: ['tabular-nums'],

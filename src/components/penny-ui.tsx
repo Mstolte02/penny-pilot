@@ -1,7 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { Fragment, PropsWithChildren, ReactNode, useEffect, useState } from 'react';
+import {
+  cloneElement,
+  Fragment,
+  isValidElement,
+  PropsWithChildren,
+  ReactNode,
+  useEffect,
+  useState,
+} from 'react';
 import {
   Animated,
   Easing,
@@ -14,6 +22,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Scene, SceneWash, Stub, Strap } from '@/components/flight-deck';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Radius, Spacing } from '@/constants/theme';
@@ -24,6 +33,7 @@ type CardProps = PropsWithChildren<{
   style?: StyleProp<ViewStyle>;
 }>;
 
+/** Every panel is a paper document with a stitched leather strap down its left edge. */
 export function Card({ children, style }: CardProps) {
   const theme = useTheme();
 
@@ -34,10 +44,12 @@ export function Card({ children, style }: CardProps) {
         styles.card,
         {
           borderColor: theme.borderStrong,
-          shadowColor: theme.ink,
+          borderBottomColor: theme.plateEdge,
+          shadowColor: theme.leatherDark,
         },
         style,
       ]}>
+      <Strap />
       {children}
     </ThemedView>
   );
@@ -66,7 +78,7 @@ function MascotDoor({ children }: PropsWithChildren) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Penny — help and settings"
+      accessibilityLabel="Penny: help and settings"
       hitSlop={8}
       onPress={() => router.push('/auth')}
       style={({ pressed }) => [styles.mascotDoor, { opacity: pressed ? 0.7 : 1 }]}>
@@ -90,11 +102,13 @@ export function SettingsButton() {
         styles.settingsButton,
         {
           backgroundColor: theme.backgroundElement,
-          borderColor: theme.border,
+          borderColor: theme.plateEdge,
+          borderBottomColor: theme.plateEdge,
           opacity: pressed ? 0.7 : 1,
+          transform: [{ translateY: pressed ? 1 : 0 }],
         },
       ]}>
-      <Ionicons name="settings-outline" size={19} color={theme.secondary} />
+      <Ionicons name="settings-outline" size={19} color={theme.navy} />
     </Pressable>
   );
 }
@@ -123,7 +137,14 @@ export function Screen({
             title={title}
             subtitle={subtitle}
             action={<SettingsButton />}
-            mascot={mascot ? <MascotDoor>{mascot}</MascotDoor> : undefined}
+            mascot={
+              mascot ? (
+                <MascotDoor>
+                  {/* The banner holds a slightly smaller Penny so titles keep their room. */}
+                  {isValidElement<{ size?: number }>(mascot) ? cloneElement(mascot, { size: 70 }) : mascot}
+                </MascotDoor>
+              ) : undefined
+            }
           />
           {segments && active !== undefined && onSelect ? (
             <SegmentedToggle stretch options={segments} value={active} onChange={onSelect} />
@@ -204,12 +225,10 @@ export function TrendStat({
 
   return (
     <Card style={StyleSheet.flatten([styles.statCard, style])}>
-      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+      <ThemedText type="eyebrow" themeColor="textSecondary" numberOfLines={1} style={styles.statLabel}>
         {label}
       </ThemedText>
-      <ThemedText style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-        {value}
-      </ThemedText>
+      <FitValue value={value} size={styles.statValue.fontSize} />
       {hasDelta ? (
         <ThemedText type="smallBold" numberOfLines={1} style={{ color }}>
           {flat ? '•' : up ? '▲' : '▼'} {Math.abs(deltaPct ?? 0).toFixed(0)}%{note ? ` ${note}` : ''}
@@ -220,6 +239,32 @@ export function TrendStat({
         </ThemedText>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * A one-line serif figure that shrinks to fit its box. `adjustsFontSizeToFit` only
+ * works on iOS, so measure the box and size the text from its character count;
+ * the number then never clips or ends in an ellipsis on Android or the web.
+ */
+function FitValue({ value, size, centered }: { value: string; size: number; centered?: boolean }) {
+  const [width, setWidth] = useState(0);
+  // Fraunces ExtraBold figures, $ and commas run up to ~0.7em wide on iOS; leave a margin.
+  const fitted = width > 0 ? Math.min(size, width / (Math.max(value.length, 1) * 0.74)) : size;
+
+  return (
+    <View style={styles.fitValue} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+      <ThemedText
+        type="section"
+        numberOfLines={1}
+        style={[
+          styles.statValue,
+          { fontSize: fitted, lineHeight: Math.round(fitted * 1.18) },
+          centered && { textAlign: 'center' },
+        ]}>
+        {value}
+      </ThemedText>
+    </View>
   );
 }
 
@@ -244,7 +289,11 @@ export function MonthTicker({
     <View
       style={[
         styles.ticker,
-        { borderColor: theme.borderStrong, backgroundColor: theme.backgroundElement },
+        {
+          borderColor: theme.plateEdge,
+          borderBottomColor: theme.plateEdge,
+          backgroundColor: theme.backgroundElement,
+        },
       ]}>
       <Pressable
         disabled={!canPrev}
@@ -278,29 +327,54 @@ type PageHeadProps = {
 /** Large editorial page title + subtitle (mirrors finance_tracker's .page-head), with an
  *  optional action (settings gear) and mascot slot so Penny still greets each screen. */
 export function PageHead({ eyebrow, title, subtitle, action, mascot }: PageHeadProps) {
+  const theme = useTheme();
+  const [copyWidth, setCopyWidth] = useState(0);
+  // The title is always one line, so a word can never break ("Transactio/ns").
+  // iOS and Android shrink it to fit (adjustsFontSizeToFit); the web cannot, so size
+  // it from the measured column there too. Fraunces ExtraBold runs ~0.64em per character.
+  const titleSize =
+    copyWidth > 0
+      ? Math.min(styles.pageHeadTitle.fontSize, copyWidth / (Math.max(title.length, 1) * 0.64))
+      : styles.pageHeadTitle.fontSize;
+
   return (
-    <View style={styles.pageHead}>
-      <View style={styles.pageHeadCopy}>
+    <View
+      style={[
+        styles.pageHead,
+        {
+          borderColor: theme.borderStrong,
+          borderBottomColor: theme.plateEdge,
+          shadowColor: theme.leatherDark,
+        },
+      ]}>
+      <View style={styles.pageHeadArt} pointerEvents="none">
+        <Scene />
+        <SceneWash />
+      </View>
+      <View
+        style={styles.pageHeadCopy}
+        onLayout={(event) => setCopyWidth(event.nativeEvent.layout.width)}>
         {eyebrow ? (
-          <ThemedText type="smallBold" themeColor="primary">
+          <ThemedText type="eyebrow" numberOfLines={1}>
             {eyebrow}
           </ThemedText>
         ) : null}
         <ThemedText
-          style={styles.pageHeadTitle}
+          type="title"
+          style={[styles.pageHeadTitle, { fontSize: titleSize, lineHeight: Math.round(titleSize * 1.15) }]}
           numberOfLines={1}
           adjustsFontSizeToFit
-          minimumFontScale={0.6}>
+          minimumFontScale={0.5}>
           {title}
         </ThemedText>
         {subtitle ? (
-          <ThemedText type="small" themeColor="textSecondary">
+          <ThemedText type="smallBold" numberOfLines={2} style={{ color: theme.textSecondary }}>
             {subtitle}
           </ThemedText>
         ) : null}
       </View>
-      {action}
-      {mascot}
+      {mascot ? <View style={styles.pageHeadMascot}>{mascot}</View> : null}
+      {action ? <View style={styles.pageHeadAction}>{action}</View> : null}
     </View>
   );
 }
@@ -334,19 +408,11 @@ export function Stat({
   return (
     <Card
       style={StyleSheet.flatten([styles.statCard, centered && { alignItems: 'center' }, style])}>
-      <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
+      <ThemedText type="eyebrow" themeColor="textSecondary" numberOfLines={1} style={styles.statLabel}>
         {label}
       </ThemedText>
-      <ThemedText
-        style={[
-          styles.statValue,
-          valueSize ? { fontSize: valueSize, lineHeight: valueSize + 4 } : null,
-        ]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.5}>
-        {value}
-      </ThemedText>
+      <FitValue value={value} size={valueSize ?? styles.statValue.fontSize} centered={centered} />
+
       {delta ? (
         <ThemedText type="small" style={{ color: deltaColor }} numberOfLines={1}>
           {delta}
@@ -375,7 +441,7 @@ export function SegmentedToggle<T extends string | number>({
       style={[
         styles.toggleRow,
         stretch && styles.toggleRowStretch,
-        { backgroundColor: theme.backgroundSelected, borderColor: theme.border },
+        { backgroundColor: theme.backgroundSelected, borderColor: theme.borderStrong },
       ]}>
       {options.map((option) => {
         const on = option.value === value;
@@ -387,12 +453,19 @@ export function SegmentedToggle<T extends string | number>({
             style={({ pressed }) => [
               styles.toggleButton,
               stretch && styles.toggleButtonStretch,
-              on && { backgroundColor: theme.primary },
+              on && { backgroundColor: theme.navy },
               { opacity: pressed ? 0.8 : 1 },
             ]}>
             <ThemedText
               type="smallBold"
-              style={{ color: on ? theme.onPrimary : theme.textSecondary, fontSize: 13 }}>
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+              style={{
+                color: on ? theme.backgroundElement : theme.textSecondary,
+                fontSize: 13,
+                fontWeight: 800,
+              }}>
               {option.label}
             </ThemedText>
           </Pressable>
@@ -405,24 +478,11 @@ export function SegmentedToggle<T extends string | number>({
 type PillTone = 'cat' | 'good' | 'bad' | 'muted' | 'info';
 
 /** Small status pill (finance_tracker's .pill). */
+/** Status label, drawn as a ticket stub (the web app's .stub) instead of a pill. */
 export function Pill({ label, tone = 'cat' }: { label: string; tone?: PillTone }) {
-  const theme = useTheme();
-  const palette: Record<PillTone, { bg: string; fg: string }> = {
-    cat: { bg: theme.backgroundSelected, fg: theme.primary },
-    good: { bg: 'rgba(95, 196, 156, 0.16)', fg: theme.success },
-    bad: { bg: 'rgba(228, 121, 107, 0.18)', fg: theme.danger },
-    muted: { bg: theme.backgroundSelected, fg: theme.textSecondary },
-    info: { bg: 'rgba(93, 124, 150, 0.14)', fg: theme.info },
-  };
-  const { bg, fg } = palette[tone];
+  const stubTone = ({ cat: 'gold', good: 'green', bad: 'red', muted: 'navy', info: 'sky' } as const)[tone];
 
-  return (
-    <View style={[styles.pill, { backgroundColor: bg }]}>
-      <ThemedText type="smallBold" style={{ color: fg, fontSize: 11.5 }}>
-        {label}
-      </ThemedText>
-    </View>
-  );
+  return <Stub label={label} tone={stubTone} />;
 }
 
 type TotalSegment = { label: string; value: string; accent?: boolean };
@@ -438,17 +498,20 @@ export function SectionTotalBar({
   const theme = useTheme();
 
   return (
-    <View style={[styles.totalBar, { backgroundColor: theme.ink }]}>
+    <View style={[styles.totalBar, { backgroundColor: theme.leather, borderColor: theme.leatherDark }]}>
+      <View pointerEvents="none" style={[styles.totalStitch, { borderColor: theme.stitch }]} />
       {segments.map((segment, index) => (
         <Fragment key={segment.label}>
           {index > 0 ? (
             <ThemedText style={styles.totalOperator}>{operators?.[index - 1] ?? '+'}</ThemedText>
           ) : null}
           <View style={styles.totalSegment}>
-            <ThemedText type="small" style={styles.totalSegmentLabel}>
+            <ThemedText type="eyebrow" style={styles.totalSegmentLabel}>
               {segment.label}
             </ThemedText>
-            <ThemedText style={[styles.totalSegmentValue, segment.accent && { color: '#D4A24C' }]}>
+            <ThemedText
+              type="section"
+              style={[styles.totalSegmentValue, segment.accent && { color: '#F2C979' }]}>
               {segment.value}
             </ThemedText>
           </View>
@@ -581,14 +644,15 @@ export function ToggleChip({
       style={({ pressed }) => [
         styles.toggleChip,
         {
-          backgroundColor: selected ? theme.primary : theme.backgroundElement,
-          borderColor: selected ? theme.primary : theme.border,
+          backgroundColor: selected ? theme.navy : theme.backgroundElement,
+          borderColor: selected ? theme.navy : theme.plateEdge,
+          borderBottomColor: selected ? theme.ink : theme.plateEdge,
           opacity: pressed ? 0.75 : 1,
         },
       ]}>
       <ThemedText
         type="smallBold"
-        style={{ color: selected ? theme.onPrimary : theme.text }}>
+        style={{ color: selected ? theme.backgroundElement : theme.navy, fontWeight: 800 }}>
         {label}
       </ThemedText>
     </Pressable>
@@ -613,13 +677,20 @@ export function PillButton({ children, tone = 'quiet', onPress, disabled }: Pill
         styles.pillButton,
         {
           backgroundColor: isPrimary ? theme.primary : theme.backgroundElement,
-          borderColor: isPrimary ? theme.primary : theme.border,
-          opacity: disabled ? 0.55 : pressed ? 0.75 : 1,
+          borderColor: isPrimary ? theme.primaryHover : theme.plateEdge,
+          borderBottomColor: isPrimary ? theme.leatherDark : theme.plateEdge,
+          opacity: disabled ? 0.55 : pressed ? 0.85 : 1,
+          transform: [{ translateY: pressed ? 1 : 0 }],
         },
       ]}>
+      {isPrimary ? <View pointerEvents="none" style={styles.plateShine} /> : null}
       <ThemedText
         type="smallBold"
-        style={{ color: isPrimary ? theme.onPrimary : theme.text }}>
+        style={{
+          color: isPrimary ? theme.onPrimary : theme.navy,
+          fontWeight: 800,
+          textAlign: 'center',
+        }}>
         {children}
       </ThemedText>
     </Pressable>
@@ -658,8 +729,15 @@ export function ProgressBar({ value, color }: ProgressBarProps) {
     <View
       style={[
         styles.progressTrack,
-        { backgroundColor: theme.background, borderColor: theme.border },
+        { backgroundColor: theme.cloud },
       ]}>
+      {[0.25, 0.5, 0.75].map((tick) => (
+        <View
+          key={tick}
+          pointerEvents="none"
+          style={[styles.fuelTick, { left: `${tick * 100}%`, backgroundColor: theme.borderStrong }]}
+        />
+      ))}
       <Animated.View
         style={[
           styles.progressFill,
@@ -714,7 +792,11 @@ export function SpeechBubble({
       <Animated.View
         style={[
           styles.speechBubble,
-          { backgroundColor: theme.backgroundSelected, borderColor: theme.primary },
+          {
+            backgroundColor: theme.backgroundElement,
+            borderColor: theme.borderStrong,
+            borderLeftColor: theme.primary,
+          },
           {
             opacity: entrance,
             transform: [
@@ -782,7 +864,7 @@ export function FuelGauge({
           {formatValue(Math.max(0, remaining))}
         </ThemedText>
       </View>
-      <View style={[styles.fuelTrack, { backgroundColor: theme.background, borderColor: theme.border }]}>
+      <View style={[styles.fuelTrack, { backgroundColor: theme.cloud, borderColor: theme.borderStrong }]}>
         <Animated.View
           style={[
             styles.fuelFill,
@@ -920,13 +1002,15 @@ export function AltitudeArc({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
+    borderBottomWidth: 3,
     borderRadius: Radius.card,
     padding: Spacing.three,
+    paddingLeft: Spacing.three + 9,
     gap: Spacing.two,
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 3,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 2,
   },
   speechRow: {
     flexDirection: 'row',
@@ -935,9 +1019,10 @@ const styles = StyleSheet.create({
   },
   speechBubble: {
     flex: 1,
-    borderWidth: 1.5,
+    borderWidth: 1,
+    borderLeftWidth: 4,
     borderRadius: Radius.card,
-    borderBottomLeftRadius: 4,
+    borderBottomLeftRadius: 0,
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
   },
@@ -956,13 +1041,13 @@ const styles = StyleSheet.create({
   },
   fuelTrack: {
     height: 14,
-    borderRadius: 999,
+    borderRadius: 2,
     borderWidth: 1,
     overflow: 'hidden',
   },
   fuelFill: {
     height: '100%',
-    borderRadius: 999,
+    borderRadius: 2,
   },
   fuelTick: {
     position: 'absolute',
@@ -1010,7 +1095,8 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     minWidth: 150,
     borderWidth: 1,
-    borderRadius: 999,
+    borderBottomWidth: 3,
+    borderRadius: Radius.control,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
     gap: Spacing.two,
@@ -1026,16 +1112,47 @@ const styles = StyleSheet.create({
   pageHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
+    gap: Spacing.two,
+    minHeight: 118,
+    borderWidth: 1,
+    borderBottomWidth: 3,
+    borderRadius: Radius.card,
+    paddingVertical: Spacing.three,
+    paddingLeft: Spacing.three + 2,
+    paddingRight: Spacing.two,
+    overflow: 'hidden',
+    backgroundColor: '#E7F3F6',
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  pageHeadArt: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  pageHeadMascot: {
+    alignSelf: 'flex-end',
+    marginRight: 30,
+    marginTop: Spacing.four,
+    marginBottom: -Spacing.three - 6,
+  },
+  pageHeadAction: {
+    position: 'absolute',
+    top: Spacing.two,
+    right: Spacing.two,
   },
   mascotDoor: {
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-end',
   },
   settingsButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: Radius.control,
     borderWidth: 1,
+    borderBottomWidth: 3,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1045,26 +1162,37 @@ const styles = StyleSheet.create({
   },
   pageHeadTitle: {
     fontSize: 30,
-    lineHeight: 34,
+    lineHeight: 33,
     fontWeight: 800,
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
   },
   statCard: {
     flex: 1,
     gap: Spacing.one,
+    // Small read-out tiles sit three to a row, so give the figure the room.
+    paddingRight: Spacing.two + 2,
+    paddingLeft: Spacing.three + 2,
+  },
+  fitValue: {
+    alignSelf: 'stretch',
+    minWidth: 0,
+  },
+  statLabel: {
+    fontSize: 10,
+    letterSpacing: 1.4,
   },
   statValue: {
-    fontSize: 24,
-    lineHeight: 28,
-    fontWeight: 700,
-    letterSpacing: -0.3,
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: 800,
+    letterSpacing: 0,
   },
   toggleRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: Radius.control,
     padding: 3,
     gap: 2,
   },
@@ -1075,18 +1203,12 @@ const styles = StyleSheet.create({
   toggleButton: {
     paddingVertical: 7,
     paddingHorizontal: 12,
-    borderRadius: 999,
+    borderRadius: 3,
     alignItems: 'center',
     justifyContent: 'center',
   },
   toggleButtonStretch: {
     flex: 1,
-  },
-  pill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
   },
   totalBar: {
     flexDirection: 'row',
@@ -1094,23 +1216,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: Spacing.three,
-    borderRadius: 22,
+    borderRadius: Radius.card + 3,
+    borderWidth: 1,
     paddingVertical: 20,
     paddingHorizontal: 24,
+    shadowColor: '#3C230F',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  totalStitch: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    right: 6,
+    bottom: 6,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 4,
+    opacity: 0.8,
   },
   totalSegment: {
     gap: 3,
   },
   totalSegmentLabel: {
-    color: '#F2F6FB',
-    opacity: 0.72,
-    fontSize: 12,
+    color: '#F4E7D2',
+    opacity: 0.85,
+    fontSize: 10,
+    letterSpacing: 1.6,
   },
   totalSegmentValue: {
-    color: '#FFFFFF',
+    color: '#FFFCF5',
     fontSize: 22,
     lineHeight: 26,
-    fontWeight: 700,
+    fontWeight: 800,
   },
   totalOperator: {
     color: '#FFFFFF',
@@ -1121,20 +1260,29 @@ const styles = StyleSheet.create({
   pillButton: {
     minHeight: 42,
     paddingHorizontal: Spacing.three,
-    borderRadius: 999,
+    borderRadius: Radius.control,
     borderWidth: 1,
+    borderBottomWidth: 3,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  plateShine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '50%',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   progressTrack: {
-    height: 11,
-    borderRadius: 999,
+    height: 10,
+    borderRadius: 2,
     overflow: 'hidden',
-    borderWidth: 1,
   },
   progressFill: {
     height: '100%',
-    borderRadius: 999,
+    borderRadius: 2,
   },
   stepDots: {
     flexDirection: 'row',
@@ -1143,13 +1291,14 @@ const styles = StyleSheet.create({
   },
   stepDot: {
     height: 8,
-    borderRadius: 4,
+    borderRadius: 2,
   },
   toggleChip: {
     minHeight: 40,
     paddingHorizontal: Spacing.three,
-    borderRadius: 999,
+    borderRadius: Radius.control,
     borderWidth: 1,
+    borderBottomWidth: 3,
     alignItems: 'center',
     justifyContent: 'center',
   },

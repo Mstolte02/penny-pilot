@@ -338,12 +338,17 @@ function budgetLineAmount(
 }
 
 export function forecastMethodLabel(line: BudgetPlanLine) {
-  const forecast = line.forecast ?? { method: 'avg6', alpha: EWMA_ALPHA };
-
   if (line.type === 'fixed') return 'Fixed';
-  if (forecast.method === 'ewma') return `EWMA ${((forecast.alpha ?? EWMA_ALPHA) * 100).toFixed(0)}%`;
-
-  return `${forecast.method.replace('avg', '')}-mo avg`;
+  const method = line.forecast?.method ?? 'avg6';
+  // Plain names; the averaging math stays behind the scenes.
+  const names: Record<string, string> = {
+    avg3: 'Short term',
+    avg6: 'Medium term',
+    avg9: 'Long term',
+    avg12: 'Annual',
+    ewma: 'Momentum',
+  };
+  return names[method] ?? 'Medium term';
 }
 
 export function summarizeBudget(plan: BudgetPlan, transactions: MobileTransaction[]): BudgetSummary {
@@ -597,7 +602,7 @@ export function homeGoalForecast(input: {
     monthlySavingsPace,
     monthsToGoal,
     targetDateLabel:
-      monthsToGoal === null ? 'Needs more savings pace' : dateAfterMonths(`${startMonth}-01`, monthsToGoal),
+      monthsToGoal === null ? 'Needs a faster savings pace' : dateAfterMonths(`${startMonth}-01`, monthsToGoal),
     progress: target > 0 ? Math.min(currentSavings / target, 1) : 0,
   } satisfies GoalForecast;
 }

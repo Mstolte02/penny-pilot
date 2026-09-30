@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { Compass, LuggageTag, PanelHead } from '@/components/flight-deck';
 import { PennyBriefing } from '@/components/penny-briefing';
 import { CountUpMoney, FadeInUp } from '@/components/penny-motion';
 import {
@@ -15,7 +16,7 @@ import {
   Screen,
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { SETUP_COMPLETE_KEY } from '@/constants/penny-voice';
 import { daysInMonthOf, formatMoney, formatMonth, safeToSpendToday } from '@/domain/mobile-finance';
 import { pennyInsights } from '@/domain/penny-insights';
@@ -121,7 +122,6 @@ export default function OverviewScreen() {
   const { safe, burn, datePosition } = view;
   const onTrack = burn <= datePosition;
   const overBudget = safe.perDay <= 0;
-  const heroColor = overBudget ? theme.danger : theme.primary;
   const mascot = overBudget ? 'concerned' : onTrack ? 'onTrack' : 'thinking';
 
   return (
@@ -135,29 +135,37 @@ export default function OverviewScreen() {
         contentContainerStyle={styles.body}
         showsVerticalScrollIndicator={false}>
         <FadeInUp style={styles.hero}>
-          <ThemedText type="smallBold" style={[styles.heroLabel, { color: theme.secondary }]}>
-            SAFE TO SPEND TODAY
-          </ThemedText>
-          <CountUpMoney
-            value={Math.max(0, safe.perDay)}
-            format={(value) => formatMoney(value)}
-            style={{ color: heroColor }}
+          <Compass
+            size={272}
+            kicker="Safe to spend"
+            value={
+              <CountUpMoney
+                value={Math.max(0, safe.perDay)}
+                format={(value) => formatMoney(value)}
+                style={[styles.compassValue, { color: overBudget ? Colors.light.danger : Colors.light.navy }]}
+              />
+            }
+            note={`~${formatMoney(safe.dailyTarget)}/day plan · ${safe.daysLeft} ${
+              safe.daysLeft === 1 ? 'day' : 'days'
+            } left`}
+            noteColor={
+              // The compass face is always light paper, so its ink ignores dark mode.
+              overBudget ? Colors.light.danger : onTrack ? Colors.light.success : Colors.light.brassDark
+            }
           />
-          <ThemedText type="small" themeColor="textSecondary">
-            ~{formatMoney(safe.dailyTarget)}/day plan · {safe.daysLeft}{' '}
-            {safe.daysLeft === 1 ? 'day' : 'days'} left in {view.monthName}
-          </ThemedText>
         </FadeInUp>
 
         <FadeInUp delay={80}>
           <Card style={styles.gaugeCard}>
-            <View style={styles.gaugeHead}>
-              <ThemedText type="smallBold">Monthly safe-to-spend tank</ThemedText>
-              <Pill
-                label={overBudget ? 'Empty' : onTrack ? 'Healthy' : 'Running low'}
-                tone={overBudget ? 'bad' : onTrack ? 'good' : 'info'}
-              />
-            </View>
+            <PanelHead
+              icon="speedometer"
+              title="Fuel Tank"
+              tagline={`Flexible budget left in ${view.monthName}`}
+            />
+            <Pill
+              label={overBudget ? 'Empty' : onTrack ? 'Healthy' : 'Running low'}
+              tone={overBudget ? 'bad' : onTrack ? 'good' : 'info'}
+            />
             <FuelGauge
               label={`${formatMoney(Math.max(0, safe.flexBudget - safe.flexSpent))} left`}
               spent={safe.flexSpent}
@@ -176,18 +184,21 @@ export default function OverviewScreen() {
         {view.nextBill ? (
           <FadeInUp delay={200}>
             <Card style={styles.stackCard}>
+              <PanelHead icon="calendar" tone="navy" title="Next Bill" tagline="Your next fixed bill" />
               <View style={styles.stackRow}>
                 <View style={styles.stackCopy}>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Next bill
-                  </ThemedText>
                   <ThemedText type="smallBold" numberOfLines={2}>
-                    {view.nextBill.name} · {view.nextBillMonth} {view.nextBill.dueDay}
+                    {view.nextBill.name}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Due {view.nextBillMonth} {view.nextBill.dueDay}
                   </ThemedText>
                 </View>
-                <ThemedText type="money" style={{ fontSize: 18 }}>
-                  {formatMoney(view.nextBill.amount)}
-                </ThemedText>
+                <LuggageTag color={theme.ink} height={40}>
+                  <ThemedText type="section" style={styles.tagValue} numberOfLines={1}>
+                    {formatMoney(view.nextBill.amount)}
+                  </ThemedText>
+                </LuggageTag>
               </View>
             </Card>
           </FadeInUp>
@@ -197,18 +208,19 @@ export default function OverviewScreen() {
           <FadeInUp delay={260}>
             <Pressable onPress={() => router.push('/budget')}>
               <Card style={styles.stackCard}>
+                <PanelHead icon="flag" tone="green" title="Goal Progress" tagline="Your first savings goal" />
                 <View style={styles.stackRow}>
                   <View style={styles.stackCopy}>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      Goal progress
-                    </ThemedText>
                     <ThemedText type="smallBold" numberOfLines={2}>
-                      {view.goal.name} · arrival by {view.goalArrival}
+                      {view.goal.name}
+                    </ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Arrival by {view.goalArrival}
                     </ThemedText>
                   </View>
-                  <Pill label={`${Math.round(view.goalProgress * 100)}%`} tone="cat" />
+                  <Pill label={`${Math.round(view.goalProgress * 100)}%`} tone="good" />
                 </View>
-                <ProgressBar value={view.goalProgress} />
+                <ProgressBar value={view.goalProgress} color={theme.success} />
               </Card>
             </Pressable>
           </FadeInUp>
@@ -228,20 +240,18 @@ const styles = StyleSheet.create({
   },
   hero: {
     alignItems: 'center',
-    gap: Spacing.one,
-    paddingTop: Spacing.two,
+    paddingTop: Spacing.one,
   },
-  heroLabel: {
-    letterSpacing: 2,
-    fontSize: 12,
+  compassValue: {
+    fontSize: 42,
+    lineHeight: 48,
+  },
+  tagValue: {
+    color: '#FFFCF5',
+    fontSize: 19,
+    lineHeight: 24,
   },
   gaugeCard: {
-    gap: Spacing.two,
-  },
-  gaugeHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     gap: Spacing.two,
   },
   stackCard: {

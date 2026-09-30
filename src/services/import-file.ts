@@ -61,7 +61,7 @@ async function previewExcel(
   const sheetName = workbook.SheetNames[0];
   const sheet = sheetName ? workbook.Sheets[sheetName] : null;
   if (!sheet) {
-    return { error: 'That workbook does not have a readable first sheet.' };
+    return { error: "Penny couldn't read the first sheet of that workbook." };
   }
 
   const rows = XLSX.utils.sheet_to_json(sheet, {

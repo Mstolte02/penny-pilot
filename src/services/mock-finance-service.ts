@@ -22,6 +22,7 @@ import type {
   BankSyncService,
   CategorizationService,
   CategorizationSuggestion,
+  ConsentService,
   FinanceDataService,
   ForecastService,
 } from '@/services/contracts';
@@ -145,6 +146,13 @@ export const mockAuthService: AuthService = {
     return mockUser;
   },
   async signOut() {},
+  async deleteAccount() {},
+};
+
+export const mockConsentService: ConsentService = {
+  async recordConsent() {
+    // Mock mode has no backend; consent is tracked locally by the ConsentGate.
+  },
 };
 
 export const mockBankSyncService: BankSyncService = {

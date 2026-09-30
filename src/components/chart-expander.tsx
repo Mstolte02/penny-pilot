@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 3,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },

@@ -1,6 +1,6 @@
-import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
+import { Platform, StyleSheet, Text, type TextProps, type TextStyle } from 'react-native';
 
-import { Fonts, ThemeColor, TypeScale } from '@/constants/theme';
+import { Fonts, FrauncesByWeight, NunitoByWeight, ThemeColor, TypeScale } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
@@ -15,30 +15,36 @@ export type ThemedTextProps = TextProps & {
     | 'section'
     | 'link'
     | 'linkPrimary'
-    | 'code';
+    | 'code'
+    | 'eyebrow';
   themeColor?: ThemeColor;
 };
 
+// Display types set in Fraunces (the web app's serif); everything else in Nunito.
+const DISPLAY_TYPES = new Set(['title', 'hero', 'subtitle', 'section']);
+
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
+  const typeStyle = styles[type as keyof typeof styles] ?? styles.default;
+  const flat: TextStyle = StyleSheet.flatten([typeStyle, style]) ?? {};
+  const weight = String(flat.fontWeight ?? 500);
+  // Each weight is its own registered family, so pick the family from the weight
+  // unless the caller asked for a specific family (monospace code, for example).
+  const family =
+    type === 'code'
+      ? Fonts.mono
+      : (DISPLAY_TYPES.has(type) ? FrauncesByWeight : NunitoByWeight)[weight] ?? Fonts.rounded;
 
   return (
     <Text
       style={[
-        styles.base,
-        { color: theme[themeColor ?? 'text'] },
-        type === 'default' && styles.default,
-        type === 'title' && styles.title,
-        type === 'hero' && styles.hero,
-        type === 'money' && styles.money,
-        type === 'small' && styles.small,
-        type === 'smallBold' && styles.smallBold,
-        type === 'subtitle' && styles.subtitle,
-        type === 'section' && styles.section,
-        type === 'link' && styles.link,
-        type === 'linkPrimary' && styles.linkPrimary,
-        type === 'code' && styles.code,
+        { fontFamily: family, color: type === 'eyebrow' ? theme.primary : DISPLAY_TYPES.has(type) ? theme.navy : theme.text },
+        themeColor ? { color: theme[themeColor] } : null,
+        typeStyle,
         style,
+        // On native each weight is its own font file, so an extra fontWeight makes iOS
+        // hunt for a variant it does not have and fall back to the system face.
+        Platform.OS !== 'web' ? { fontWeight: 'normal' } : null,
       ]}
       {...rest}
     />
@@ -46,8 +52,12 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
 }
 
 const styles = StyleSheet.create({
-  base: {
-    fontFamily: Fonts.rounded,
+  eyebrow: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: 900,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
   small: {
     fontSize: 14,
@@ -69,7 +79,7 @@ const styles = StyleSheet.create({
     fontSize: TypeScale.hero,
     lineHeight: 54,
     fontWeight: 800,
-    letterSpacing: -1,
+    letterSpacing: -0.5,
     fontVariant: ['tabular-nums'],
   },
   // Any inline money value: same body rhythm, trustworthy aligned digits.
@@ -101,7 +111,7 @@ const styles = StyleSheet.create({
   linkPrimary: {
     lineHeight: 30,
     fontSize: 14,
-    color: '#B87333',
+    color: '#B8652F',
   },
   code: {
     fontFamily: Fonts.mono,

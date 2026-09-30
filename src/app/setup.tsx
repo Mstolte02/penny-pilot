@@ -34,7 +34,7 @@ const budgetStyles: { label: string; value: BudgetStyle; explainer: string }[] =
     label: 'Guided flexible',
     value: 'guided-flexible',
     explainer:
-      'Penny suggests amounts from your history — fixed bills stay fixed, everything else flexes with real spending. The easiest default.',
+      'Penny suggests amounts from your history. Fixed bills stay put, and the rest moves with what you really spend. The easiest place to start.',
   },
   {
     label: '50/30/20',
@@ -46,13 +46,13 @@ const budgetStyles: { label: string; value: BudgetStyle; explainer: string }[] =
     label: 'Zero-based',
     value: 'zero-based',
     explainer:
-      'Every dollar gets a job before the month starts — income minus assignments should land on exactly zero. Maximum control, a little more upkeep.',
+      'Every dollar gets a job before the month starts, so income minus what you assign comes to exactly zero. The most control, with a bit more upkeep.',
   },
   {
     label: 'Category envelopes',
     value: 'envelopes',
     explainer:
-      'Each category is an envelope of cash. When an envelope runs empty, spending there pauses (or you consciously move money from another envelope).',
+      'Each category is an envelope of cash. When an envelope runs empty, spending there stops (or you move money over from another envelope).',
   },
 ];
 
@@ -161,7 +161,7 @@ function monthInputAfter(startMonth: string, count: number) {
 function getSetupErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (error && typeof error === 'object' && 'message' in error) return String(error.message);
-  return 'Preferences could not be saved yet — the app still works locally.';
+  return "Couldn't save your preferences yet. The app still works on this device.";
 }
 
 export default function SetupScreen() {
@@ -325,48 +325,48 @@ export default function SetupScreen() {
   };
 
   const buildWizardPlanLines = (): PlanLine[] => {
-    const months = Array.from(
-      new Set(
-        storeTransactions
-          .filter((transaction) => transaction.type === 'expense')
-          .map((transaction) => monthKey(transaction.date))
-      )
-    );
-    const divisor = Math.max(months.length, 1);
+    const expenses = storeTransactions.filter((transaction) => transaction.type === 'expense');
+    const divisor = Math.max(new Set(expenses.map((transaction) => monthKey(transaction.date))).size, 1);
     const normalize = (value: string | null | undefined) =>
       (value ?? '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
-    const amountFor = (category: string, subcategory: string) => {
-      if (storeTransactions.length === 0) return 0;
-      const categoryKey = normalize(category);
-      const subcategoryKey = normalize(subcategory);
-      const total = storeTransactions
-        .filter((transaction) => {
-          if (transaction.type !== 'expense') return false;
-          const transactionCategory = normalize(transaction.category);
-          const transactionSubcategory = normalize(transaction.subcategory);
-          return (
-            transactionCategory === categoryKey ||
-            transactionCategory.includes(categoryKey) ||
-            categoryKey.includes(transactionCategory) ||
-            transactionSubcategory === subcategoryKey ||
-            transactionSubcategory.includes(subcategoryKey) ||
-            subcategoryKey.includes(transactionSubcategory)
-          );
-        })
-        .reduce((sum, transaction) => sum + transaction.moneyOut, 0);
-      return Math.round(total / divisor);
-    };
+    // Loose match for naming drift ("Fun Stuff" vs "Subscriptions & Fun"), but
+    // never on an empty string — `"x".includes('')` is always true, which made
+    // every uncategorized transaction match every line and gave the whole plan
+    // one identical amount.
+    const matchesLoosely = (a: string, b: string) =>
+      a === b || (a.length > 0 && b.length > 0 && (a.includes(b) || b.includes(a)));
 
     return selectedCategories.flatMap((category) => {
       const subcategories = selectedSubcategories[category]?.length
         ? selectedSubcategories[category]
         : ['General'];
-      return subcategories.map((subcategory) => ({
+      const categoryKey = normalize(category);
+      const subcategoryKeys = subcategories.map(normalize);
+      // Uncategorized spend in this category lands on the catch-all line
+      // (General/Other), or the first line when no catch-all was picked.
+      const fallbackIndex = Math.max(
+        0,
+        subcategoryKeys.findIndex((key) => key === 'general' || key === 'other' || key === 'uncategorized')
+      );
+
+      // Each transaction is assigned to exactly one line — no double counting.
+      const totals = subcategories.map(() => 0);
+      for (const transaction of expenses) {
+        if (!matchesLoosely(normalize(transaction.category), categoryKey)) continue;
+        const subcategoryKey = normalize(transaction.subcategory);
+        const matched =
+          subcategoryKey.length > 0
+            ? subcategoryKeys.findIndex((key) => matchesLoosely(key, subcategoryKey))
+            : -1;
+        totals[matched === -1 ? fallbackIndex : matched] += transaction.moneyOut;
+      }
+
+      return subcategories.map((subcategory, index) => ({
         id: `${category}::${subcategory}`,
         section: category,
         name: subcategory,
         type: category === 'Housing' || category === 'Debt' ? ('fixed' as const) : ('flexible' as const),
-        amount: amountFor(category, subcategory),
+        amount: Math.round(totals[index] / divisor),
         method: 'avg6' as const,
         match: [[category, subcategory]] as [string, string][],
       }));
@@ -388,7 +388,7 @@ export default function SetupScreen() {
         setImportError(
           preview.duplicates > 0
             ? 'Every row in that file is already imported.'
-            : 'No readable transactions found in that file.'
+            : "Penny couldn't find any transactions in that file."
         );
         return;
       }
@@ -401,9 +401,9 @@ export default function SetupScreen() {
       );
     } catch (error) {
       if (importFailureNeedsRebuild(error)) {
-        setImportError('This app build is missing the file picker — install the newest development build and try again.');
+        setImportError('This build is missing the file picker. Install the newest development build and try again.');
       } else {
-        setImportError('Could not read that file. Make sure it is a CSV or Excel export from your bank.');
+        setImportError("Couldn't read that file. Is it a CSV or Excel export from your bank?");
       }
     } finally {
       setImporting(false);
@@ -505,7 +505,7 @@ export default function SetupScreen() {
                 </ThemedText>
                 <ThemedText style={{ color: WizardColors.textSecondary }}>
                   Setup is the only magic show in this app. Penny casts a few spells on your own
-                  data — then the hat comes off and every number you see is real.
+                  data, then the hat comes off and every number you see is real.
                 </ThemedText>
               </View>
             )}
@@ -516,8 +516,8 @@ export default function SetupScreen() {
                   {wizardScript.summon}
                 </ThemedText>
                 <ThemedText style={{ color: WizardColors.textSecondary }}>
-                  Connect a bank and transactions appear on their own — or keep things fully
-                  private with bank-export files. Both feed the same radar.
+                  Connect a bank and transactions show up on their own. Or stay fully private and
+                  import files from your bank. Both land on the same radar.
                 </ThemedText>
                 <View style={styles.chips}>
                   <ToggleChip
@@ -560,8 +560,8 @@ export default function SetupScreen() {
                   {wizardScript.sort}
                 </ThemedText>
                 <ThemedText style={{ color: WizardColors.textSecondary }}>
-                  Start with a preset, then pack only the categories and subcategories that belong
-                  in your budget. This saves as you go.
+                  Pick a preset, then pack the categories and subcategories you want in your
+                  budget. Your picks save as you go.
                 </ThemedText>
                 <View style={styles.chips}>
                   {personas.map((preset) => (
@@ -619,8 +619,8 @@ export default function SetupScreen() {
                   {wizardScript.flightPlan}
                 </ThemedText>
                 <ThemedText style={{ color: WizardColors.textSecondary }}>
-                  A starting budget style and the destinations worth flying toward. Penny suggests;
-                  you have final say.
+                  Pick a budget style to start with and the goals you&apos;re flying toward. Penny
+                  suggests, you decide.
                 </ThemedText>
                 <View style={styles.styleList}>
                   {budgetStyles.map((style) => (
@@ -658,7 +658,7 @@ export default function SetupScreen() {
                   Destinations (your goals)
                 </ThemedText>
                 <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>
-                  Tap one to set the actual amount, current balance, monthly plan, and need-by date.
+                  Tap one to set the goal amount, what you have now, a monthly plan, and a need-by date.
                 </ThemedText>
                 <View style={styles.chips}>
                   {goalTemplates.map((goal) => (
@@ -739,7 +739,7 @@ export default function SetupScreen() {
                   “{wizardScript.transform}”
                 </ThemedText>
                 <ThemedText style={{ color: WizardColors.textSecondary, textAlign: 'center' }}>
-                  The wand is a headset now. Flight plan approved.
+                  The wand&apos;s a headset now, and your flight plan is approved.
                 </ThemedText>
               </View>
             )}
@@ -943,8 +943,8 @@ function BudgetStylePreview({ styleValue }: { styleValue: BudgetStyle }) {
 
   return (
     <View style={styles.previewBlock}>
-      <ThemedText type="smallBold" style={{ color: WizardColors.text }}>Flexible lines tune from history</ThemedText>
-      <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>Fixed bills stay fixed; variable lines learn over time.</ThemedText>
+      <ThemedText type="smallBold" style={{ color: WizardColors.text }}>Flexible lines follow your history</ThemedText>
+      <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>Fixed bills stay fixed. The rest adjusts over time.</ThemedText>
     </View>
   );
 }
@@ -973,7 +973,7 @@ function GoalSetupModal({
             Set up your goal
           </ThemedText>
           <WizardField label="Name" value={draft?.name ?? ''} onChangeText={(value) => update({ name: value })} />
-          <WizardField label="Current saved" value={draft?.current ?? ''} onChangeText={(value) => update({ current: value })} keyboardType="numeric" />
+          <WizardField label="Saved so far" value={draft?.current ?? ''} onChangeText={(value) => update({ current: value })} keyboardType="numeric" />
           <WizardField label="Goal amount" value={draft?.target ?? ''} onChangeText={(value) => update({ target: value })} keyboardType="numeric" />
           <WizardField label="Monthly plan" value={draft?.monthlyTarget ?? ''} onChangeText={(value) => update({ monthlyTarget: value })} keyboardType="numeric" />
           <WizardField label="Need-by month" value={draft?.targetDate ?? ''} onChangeText={(value) => update({ targetDate: value })} placeholder="YYYY-MM" />
@@ -1114,7 +1114,7 @@ const styles = StyleSheet.create({
   subcategoryChip: {
     maxWidth: '100%',
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 3,
     paddingHorizontal: Spacing.two,
     paddingVertical: 4,
   },
@@ -1247,7 +1247,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 520,
     borderWidth: 1,
-    borderRadius: Radius.card + 6,
+    borderRadius: Radius.card,
     padding: Spacing.four,
     gap: Spacing.three,
   },
@@ -1257,7 +1257,7 @@ const styles = StyleSheet.create({
   backButton: {
     minHeight: 42,
     paddingHorizontal: Spacing.three,
-    borderRadius: 21,
+    borderRadius: 4,
     justifyContent: 'center',
   },
   dimmed: {

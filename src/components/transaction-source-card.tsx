@@ -16,7 +16,7 @@ export function TransactionSourceCard({ compact = false }: TransactionSourceCard
   const router = useRouter();
   const theme = useTheme();
   const [status, setStatus] = useState(
-    'Choose the setup path that matches how much convenience or privacy you want.'
+    'Pick the setup that fits how much convenience or privacy you want.'
   );
 
   return (
@@ -37,7 +37,7 @@ export function TransactionSourceCard({ compact = false }: TransactionSourceCard
           </ThemedText>
           <ThemedText type="subtitle">Connect your bank</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Penny can sync transactions automatically and send uncertain ones to review.
+            Penny syncs transactions automatically and sends unclear ones to review.
           </ThemedText>
           <BankLinkButton onStatusChange={setStatus} />
         </View>
@@ -48,12 +48,12 @@ export function TransactionSourceCard({ compact = false }: TransactionSourceCard
           </ThemedText>
           <ThemedText type="subtitle">Use a bank export</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Download CSV or Excel transactions from your bank, then upload them without
-            linking an account.
+            Download a CSV or Excel file from your bank, then upload it without linking an
+            account.
           </ThemedText>
           <PillButton
             onPress={() => {
-              setStatus('Private import will use a bank CSV or Excel export, no live account link.');
+              setStatus('Private import uses a CSV or Excel export from your bank, with no live account link.');
               if (compact) {
                 router.push('/transactions');
               }
@@ -65,7 +65,7 @@ export function TransactionSourceCard({ compact = false }: TransactionSourceCard
 
       {!compact ? (
         <View style={[styles.instructions, { backgroundColor: theme.backgroundSelected }]}>
-          <ThemedText type="smallBold">How private import will work</ThemedText>
+          <ThemedText type="smallBold">How private import works</ThemedText>
           <View style={styles.stepList}>
             <Step index="1" label="Open your bank or credit card website." />
             <Step index="2" label="Find transactions, activity, or statements." />
@@ -113,12 +113,12 @@ const styles = StyleSheet.create({
   },
   option: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: 5,
     gap: Spacing.two,
     padding: Spacing.three,
   },
   instructions: {
-    borderRadius: 18,
+    borderRadius: 5,
     gap: Spacing.two,
     padding: Spacing.three,
   },

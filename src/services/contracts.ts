@@ -1,3 +1,4 @@
+import type { ConsentMethod, ConsentType } from '@/constants/consent';
 import type {
   BankAccount,
   BankInstitution,
@@ -20,6 +21,25 @@ export interface AuthService {
   signInWithApple(): Promise<UserProfile>;
   signInWithGoogle(): Promise<UserProfile>;
   signOut(): Promise<void>;
+  /**
+   * Permanently deletes the signed-in user's account and every dependent record
+   * (transactions, accounts, budgets, goals, bank connections), revokes any active
+   * Plaid connection, and ends the session. Irreversible.
+   */
+  deleteAccount(): Promise<void>;
+}
+
+export interface ConsentService {
+  /**
+   * Persists a consent record server-side for the signed-in user. No-op (resolves)
+   * when there is no active session — local consent still governs app access, and
+   * this is retried after sign-in.
+   */
+  recordConsent(input: {
+    types: ConsentType[];
+    version: string;
+    method: ConsentMethod;
+  }): Promise<void>;
 }
 
 export interface BankSyncService {

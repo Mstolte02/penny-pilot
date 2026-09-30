@@ -126,42 +126,46 @@ tool is confirmed in place today — only default OS protections are assumed, un
 
 ### 8. Privacy policy for the application where Plaid Link will be deployed
 
-**Not yet published.** This is a real, disclosed gap rather than an oversight papered
-over — the app does not currently have a published privacy policy. This needs to exist
-before Plaid Link is used with real (non-Sandbox) consumer accounts, and drafting one
-(covering what's collected, Plaid's role, retention, and user rights) is a direct,
-near-term follow-up to this questionnaire.
+**Published.** The privacy policy ([docs/privacy-policy.md](privacy-policy.md), hosted at
+`https://penny-pilot.net/privacy`) covers what's collected, Plaid's role, retention, and
+user rights. It is linked from the first-run consent gate (see item 9).
 
 ### 9. Consent for collection, processing, and storage of consumer data
 
-**Not yet a dedicated Penny Pilot consent step.** Plaid Link itself presents Plaid's own
-end-user disclosure/consent panel before linking an account (standard Plaid Link behavior,
-outside Penny Pilot's control), and Apple/Google present their own OAuth consent screens for
-the identity data they share — but Penny Pilot does not yet capture its own explicit
-consent (e.g., an "I agree to the Privacy Policy and Terms" step) before account creation
-or data collection. This should ship alongside the privacy policy in item 8.
+**Implemented as of 2026-07-19** (update to the 2026-07-05 baseline below). Penny Pilot now
+captures its own explicit, versioned consent:
+
+- A first-run **consent gate** (`src/components/consent-gate.tsx`) blocks app use until the
+  user affirmatively agrees to the Privacy Policy for the current consent version.
+- Agreement is recorded locally (so it holds in the no-account, on-device mode) and
+  mirrored to an immutable, versioned **server-side audit trail** (`user_consents` table,
+  `supabase/migrations/0003_consent_tracking.sql`) whenever a session exists.
+- A **Plaid-specific data-sharing acknowledgment** is shown before Plaid Link opens
+  (`src/components/bank-link-button.native.tsx`) and recorded as its own consent type.
+- Consent version is bumped in `src/constants/consent.ts` when the substance changes,
+  re-prompting all users and preserving the prior record in the trail.
+
+*Original 2026-07-05 baseline:* Plaid Link and Apple/Google presented their own consent
+panels, but Penny Pilot captured no consent of its own — the gap now closed above.
 
 ### 10. Data deletion/retention policy compliant with applicable privacy laws, reviewed periodically
 
-**Partially defined, not yet fully implemented or independently mapped to specific laws.**
-[Data Classification & Handling](data-classification-handling.md) documents that deleting a
-user's `profiles` row cascades to every dependent table via `on delete cascade` foreign
-keys in the schema (`supabase/migrations/0001_initial_schema.sql`). Three concrete gaps
-remain, disclosed rather than hidden:
+**Largely implemented as of 2026-07-19.** There is now a dedicated
+[Data Retention & Deletion](data-retention-deletion.md) policy with a per-category retention
+schedule and deletion SLAs, on top of the cascade behavior documented in
+[Data Classification & Handling](data-classification-handling.md). Status of the three gaps
+disclosed in the 2026-07-05 baseline:
 
-1. Account deletion does not yet trigger a Plaid `/item/remove` call, so the underlying
-   bank connection at Plaid isn't automatically revoked when a user deletes their account
-   — only the local database rows are removed today.
-2. There is no standalone retention-schedule document mapping specific data categories to
-   specific legal retention requirements (e.g., CCPA, GLBA, state-level requirements) —
-   today's retention behavior is "as long as the account exists," not a law-specific
-   schedule.
-3. There is no self-service, in-app data export or deletion request flow yet for a user who
-   wants their data before or instead of deleting their account outright.
-
-Target: close all three before Plaid Link is used with real consumer accounts in
-production, and review this section on the same cadence as the rest of the
-[Risk Assessment Process](risk-assessment-process.md) once implemented.
+1. **Closed.** Account deletion now runs through the `delete-account` Edge Function
+   (`supabase/functions/delete-account/index.ts`), which calls Plaid `/item/remove` for
+   every connected Item before deleting the `auth.users` row (cascading all data). An
+   in-app "Delete account" action drives it (`src/app/auth.tsx`).
+2. **Closed for the schedule; law-specific mapping ongoing.** The retention schedule now
+   exists as a standalone document; explicit line-by-line mapping to individual statutes
+   (CCPA/GLBA/state) is a documentation refinement tracked for the pre-production review.
+3. **Open.** A self-service, in-app **data export** flow is not yet built (deletion is);
+   this remains the one open sub-item, tracked in the
+   [Risk Assessment Process](risk-assessment-process.md) register.
 
 ---
 

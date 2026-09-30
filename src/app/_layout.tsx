@@ -1,8 +1,19 @@
+import { Fraunces_600SemiBold } from '@expo-google-fonts/fraunces/600SemiBold';
+import { Fraunces_700Bold } from '@expo-google-fonts/fraunces/700Bold';
+import { Fraunces_800ExtraBold } from '@expo-google-fonts/fraunces/800ExtraBold';
+import { Fraunces_900Black } from '@expo-google-fonts/fraunces/900Black';
+import { Nunito_500Medium } from '@expo-google-fonts/nunito/500Medium';
+import { Nunito_600SemiBold } from '@expo-google-fonts/nunito/600SemiBold';
+import { Nunito_700Bold } from '@expo-google-fonts/nunito/700Bold';
+import { Nunito_800ExtraBold } from '@expo-google-fonts/nunito/800ExtraBold';
+import { Nunito_900Black } from '@expo-google-fonts/nunito/900Black';
+import { useFonts } from 'expo-font';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 
 import AppTabs from '@/components/app-tabs';
-import { Colors, Fonts } from '@/constants/theme';
+import { ConsentGate } from '@/components/consent-gate';
+import { Colors } from '@/constants/theme';
 import { ThemePreferenceProvider, useThemePreference } from '@/hooks/theme-preference';
 import { FinanceProvider } from '@/services/finance-store';
 
@@ -23,10 +34,10 @@ function navigationTheme(scheme: 'light' | 'dark') {
     },
     fonts: {
       ...base.fonts,
-      regular: { ...base.fonts.regular, fontFamily: Fonts.rounded },
-      medium: { ...base.fonts.medium, fontFamily: Fonts.rounded },
-      bold: { ...base.fonts.bold, fontFamily: Fonts.rounded },
-      heavy: { ...base.fonts.heavy, fontFamily: Fonts.rounded },
+      regular: { ...base.fonts.regular, fontFamily: 'Nunito_500Medium' },
+      medium: { ...base.fonts.medium, fontFamily: 'Nunito_600SemiBold' },
+      bold: { ...base.fonts.bold, fontFamily: 'Nunito_800ExtraBold' },
+      heavy: { ...base.fonts.heavy, fontFamily: 'Nunito_900Black' },
     },
   };
 }
@@ -37,12 +48,30 @@ function ThemedNavigation() {
   return (
     <ThemeProvider value={navigationTheme(scheme)}>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <AppTabs />
+      <ConsentGate>
+        <AppTabs />
+      </ConsentGate>
     </ThemeProvider>
   );
 }
 
 export default function TabLayout() {
+  // The flight-deck type pair (Nunito + Fraunces). Render nothing until it loads so
+  // no screen flashes in a fallback face.
+  const [fontsLoaded, fontError] = useFonts({
+    Fraunces_600SemiBold,
+    Fraunces_700Bold,
+    Fraunces_800ExtraBold,
+    Fraunces_900Black,
+    Nunito_500Medium,
+    Nunito_600SemiBold,
+    Nunito_700Bold,
+    Nunito_800ExtraBold,
+    Nunito_900Black,
+  });
+
+  if (!fontsLoaded && !fontError) return null;
+
   return (
     <ThemePreferenceProvider>
       <FinanceProvider>

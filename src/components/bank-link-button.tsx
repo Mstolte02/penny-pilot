@@ -10,7 +10,7 @@ export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
       tone="primary"
       onPress={() =>
         onStatusChange?.(
-          'Plaid Link is ready for iOS/Android development builds. Expo Go and web do not load the native Plaid module.'
+          "Plaid Link works in iOS and Android development builds. Expo Go and web can't load the native Plaid module."
         )
       }>
       Connect bank

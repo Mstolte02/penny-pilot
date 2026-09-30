@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { createPlaidLinkSession, type LinkExit, type LinkSuccess } from 'react-native-plaid-link-sdk';
 
 import { PillButton } from '@/components/penny-ui';
+import { plaidConsentCopy } from '@/constants/consent';
+import { useConsent } from '@/hooks/use-consent';
 import { bankSyncService } from '@/services';
 
 type BankLinkButtonProps = {
@@ -10,6 +12,9 @@ type BankLinkButtonProps = {
 
 export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
   const [busy, setBusy] = useState(false);
+  // Require an explicit Plaid data-sharing acknowledgment before opening Link.
+  const [acknowledging, setAcknowledging] = useState(false);
+  const { grant } = useConsent();
 
   const updateStatus = (message: string) => {
     onStatusChange?.(message);
@@ -24,7 +29,7 @@ export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
         `${institution.name} synced. ${syncResult.added} new transactions are ready for review.`
       );
     } catch (error) {
-      updateStatus(error instanceof Error ? error.message : 'Bank sync could not complete.');
+      updateStatus(error instanceof Error ? error.message : "Bank sync didn't finish.");
     } finally {
       setBusy(false);
     }
@@ -34,13 +39,22 @@ export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
     if (exit.error) {
       updateStatus(exit.error.displayMessage ?? exit.error.errorMessage);
     } else {
-      updateStatus('Bank connection was cancelled.');
+      updateStatus('Bank connection cancelled.');
     }
 
     setBusy(false);
   };
 
+  const requestLink = () => {
+    // First tap surfaces the data-sharing acknowledgment; second tap proceeds.
+    setAcknowledging(true);
+    updateStatus(plaidConsentCopy.body);
+  };
+
   const startLink = async () => {
+    setAcknowledging(false);
+    // Record the Plaid-specific consent (locally + server audit trail) before linking.
+    await grant(['privacy_terms', 'plaid_data_sharing'], 'plaid_link_prompt');
     setBusy(true);
     updateStatus('Creating a secure Plaid connection...');
 
@@ -57,12 +71,20 @@ export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
       await session.open(true);
     } catch (error) {
       setBusy(false);
-      updateStatus(error instanceof Error ? error.message : 'Could not open Plaid Link.');
+      updateStatus(error instanceof Error ? error.message : "Couldn't open Plaid Link.");
     }
   };
 
+  if (acknowledging) {
+    return (
+      <PillButton tone="primary" disabled={busy} onPress={() => void startLink()}>
+        {plaidConsentCopy.agreeLabel}
+      </PillButton>
+    );
+  }
+
   return (
-    <PillButton tone="primary" disabled={busy} onPress={() => void startLink()}>
+    <PillButton tone="primary" disabled={busy} onPress={requestLink}>
       {busy ? 'Connecting...' : 'Connect bank'}
     </PillButton>
   );

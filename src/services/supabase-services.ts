@@ -21,6 +21,7 @@ import type {
   BankSyncService,
   CategorizationService,
   CategorizationSuggestion,
+  ConsentService,
   FinanceDataService,
   ForecastService,
 } from '@/services/contracts';
@@ -405,7 +406,7 @@ export const supabaseAuthService: AuthService = {
     await startOAuth('apple');
     const user = await this.getCurrentUser();
     if (!user) {
-      throw new Error('Apple sign-in completed, but no user profile loaded.');
+      throw new Error("You're signed in with Apple, but your profile didn't load.");
     }
 
     return user;
@@ -414,7 +415,7 @@ export const supabaseAuthService: AuthService = {
     await startOAuth('google');
     const user = await this.getCurrentUser();
     if (!user) {
-      throw new Error('Google sign-in completed, but no user profile loaded.');
+      throw new Error("You're signed in with Google, but your profile didn't load.");
     }
 
     return user;
@@ -422,6 +423,40 @@ export const supabaseAuthService: AuthService = {
   async signOut() {
     const client = requireSupabase();
     const { error } = await client.auth.signOut();
+    if (error) {
+      throw error;
+    }
+  },
+  async deleteAccount() {
+    const client = requireSupabase();
+    // The Edge Function runs with the service role: it revokes any Plaid items and
+    // deletes the profile row, which cascades to every dependent table via FK.
+    const { error } = await client.functions.invoke('delete-account');
+    if (error) {
+      throw new Error(await getFunctionErrorMessage(error, 'Could not delete your account.'));
+    }
+    // Best-effort local session teardown; the account is already gone server-side.
+    await client.auth.signOut().catch(() => undefined);
+  },
+};
+
+export const supabaseConsentService: ConsentService = {
+  async recordConsent({ types, version, method }) {
+    const client = requireSupabase();
+    const { data: authData } = await client.auth.getUser();
+    const userId = authData.user?.id;
+    if (!userId) {
+      // No session yet — local consent still gates the app; this is retried after sign-in.
+      return;
+    }
+
+    const rows = types.map((consent_type) => ({
+      user_id: userId,
+      consent_type,
+      version,
+      method,
+    }));
+    const { error } = await client.from('user_consents').insert(rows);
     if (error) {
       throw error;
     }

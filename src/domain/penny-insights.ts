@@ -120,7 +120,7 @@ function categoryPaceInsight(input: InsightInput, now: Date): PennyInsight | nul
       id: 'category-pace-steady',
       expression: 'onTrack',
       priority: 30,
-      headline: `Every category is pacing within 15% of your usual — steady flying.`,
+      headline: `Every category is within 15% of your usual pace. Steady flying.`,
       detail: `Compared against your average month over the last ${months} months.`,
     };
   }
@@ -129,8 +129,8 @@ function categoryPaceInsight(input: InsightInput, now: Date): PennyInsight | nul
       id: 'category-pace-over',
       expression: 'thinking',
       priority: 80,
-      headline: `${best.category} is pacing toward ${formatMoney(best.projected)} this month — about ${formatMoney(delta)} over your usual.`,
-      detail: `Your last ${months} months averaged ${formatMoney(best.usual)}. Catching it mid-month is what makes it fixable.`,
+      headline: `${best.category} is pacing toward ${formatMoney(best.projected)} this month, about ${formatMoney(delta)} over your usual.`,
+      detail: `Your last ${months} months averaged ${formatMoney(best.usual)}. Mid-month is still early enough to fix it.`,
     };
   }
   return {
@@ -138,7 +138,7 @@ function categoryPaceInsight(input: InsightInput, now: Date): PennyInsight | nul
     expression: 'happy',
     priority: 55,
     headline: `${best.category} is pacing ${formatMoney(Math.abs(delta))} under your usual month.`,
-    detail: `If the pace holds, that's ${formatMoney(Math.abs(delta))} you can push toward a goal instead.`,
+    detail: `If the pace holds, that's ${formatMoney(Math.abs(delta))} you could put toward a goal.`,
   };
 }
 
@@ -174,8 +174,8 @@ function savingsRateInsight(input: InsightInput, now: Date): PennyInsight | null
       id: 'savings-rate-up',
       expression: 'celebrating',
       priority: 70,
-      headline: `Last month you kept ${pct(lastRate)} of your income — above your ${pct(typical)} norm.`,
-      detail: `That's real progress, not a rounding error. The Logbook tab shows which categories made room.`,
+      headline: `Last month you kept ${pct(lastRate)} of your income, above your usual ${pct(typical)}.`,
+      detail: `Nice work. The Logbook tab shows which categories made room.`,
     };
   }
   if (lastRate <= typical - 0.05) {
@@ -184,7 +184,7 @@ function savingsRateInsight(input: InsightInput, now: Date): PennyInsight | null
       expression: 'thinking',
       priority: 65,
       headline: `Last month ${pct(Math.max(0, lastRate))} of income stayed with you, under your usual ${pct(typical)}.`,
-      detail: `One month is weather, not climate — but two in a row is a trend worth a look at the Logbook.`,
+      detail: `One month is just weather. If it happens twice in a row, check the Logbook.`,
     };
   }
   return {
@@ -192,7 +192,7 @@ function savingsRateInsight(input: InsightInput, now: Date): PennyInsight | null
     expression: 'onTrack',
     priority: 35,
     headline: `You're keeping about ${pct(typical)} of your income month over month.`,
-    detail: `Consistency compounds — a steady rate beats a heroic month followed by a slide.`,
+    detail: `A steady rate beats one big month followed by a slide.`,
   };
 }
 
@@ -215,7 +215,7 @@ function noSpendInsight(input: InsightInput, now: Date): PennyInsight | null {
     expression: 'happy',
     priority: 45,
     headline: `${noSpendDays} no-spend ${noSpendDays === 1 ? 'day' : 'days'} so far this month.`,
-    detail: `Days where nothing left your accounts. They're the quietest form of progress there is.`,
+    detail: `Days when nothing left your accounts. Quiet, but they add up.`,
   };
 }
 
@@ -242,7 +242,7 @@ function topMerchantInsight(input: InsightInput, now: Date): PennyInsight | null
     expression: 'default',
     priority: 40,
     headline: `${top[0]} has taken ${formatMoney(top[1].total)} across ${top[1].count} visits this month.`,
-    detail: `Not a judgment — just the kind of number that's useful to know on purpose instead of by surprise.`,
+    detail: `No judgment. Just a number worth knowing before it surprises you.`,
   };
 }
 
@@ -260,7 +260,7 @@ function goalInsight(input: InsightInput): PennyInsight | null {
       expression: 'celebrating',
       priority: 85,
       headline: `${goal.name} is one month of saving away. ${formatMoney(remaining)} to go.`,
-      detail: `At ${formatMoney(goal.monthlyTarget)}/month, the runway ends right in front of you.`,
+      detail: `At ${formatMoney(goal.monthlyTarget)}/month, you're on final approach.`,
     };
   }
   return {
@@ -308,8 +308,8 @@ function weekendInsight(input: InsightInput, now: Date): PennyInsight | null {
     id: 'weekend-burn',
     expression: 'thinking',
     priority: 42,
-    headline: `Your weekend days run about ${ratio.toFixed(1)}× a weekday — ${formatMoney(weekendPerDay)} vs ${formatMoney(weekdayPerDay)}.`,
-    detail: `Measured over your last ${months.length} months. Planning one weekend anchor (a meal out, not three) usually closes most of that gap painlessly.`,
+    headline: `Your weekend days cost about ${ratio.toFixed(1)}× a weekday (${formatMoney(weekendPerDay)} vs ${formatMoney(weekdayPerDay)}).`,
+    detail: `Based on your last ${months.length} months. Planning one meal out per weekend, not three, usually closes most of that gap.`,
   };
 }
 
@@ -328,7 +328,7 @@ function budgetPositionInsight(input: InsightInput, now: Date): PennyInsight | n
       expression: 'concerned',
       priority: 95,
       headline: `The flexible budget is spent with ${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} still on the clock.`,
-      detail: `No shame spiral required — move money from a calmer category on the Plan tab and finish the month on purpose.`,
+      detail: `It happens. Move money from a quieter category on the Plan tab to finish the month.`,
     };
   }
   if (burn > elapsed + 0.08) {
@@ -337,7 +337,7 @@ function budgetPositionInsight(input: InsightInput, now: Date): PennyInsight | n
       id: 'budget-ahead-of-calendar',
       expression: 'thinking',
       priority: 75,
-      headline: `Spending is ${Math.round((burn - elapsed) * 100)} points ahead of the calendar — ${formatMoney(cushionPerDay)}/day keeps the rest of the month green.`,
+      headline: `Spending is ${Math.round((burn - elapsed) * 100)} points ahead of the calendar. Keep it to ${formatMoney(cushionPerDay)}/day to stay green this month.`,
       detail: `${formatMoney(remaining)} left across ${daysLeft} days. The gauge on this screen updates as you go.`,
     };
   }
@@ -347,7 +347,7 @@ function budgetPositionInsight(input: InsightInput, now: Date): PennyInsight | n
       expression: 'celebrating',
       priority: 60,
       headline: `You're ${Math.round((elapsed - burn) * 100)} points under the calendar pace with ${formatMoney(remaining)} still in the tank.`,
-      detail: `Finishing under doesn't need to mean spending the rest — even half of it moved to a goal is a real win.`,
+      detail: `You don't have to spend the rest. Moving even half to a goal is a real win.`,
     };
   }
   return null;

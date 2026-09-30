@@ -8,7 +8,7 @@ import { Spacing } from '@/constants/theme';
 
 export function BankSyncCard() {
   const [status, setStatus] = useState(
-    'Connect a checking, savings, or credit account when you are ready to pull transactions.'
+    "Connect a checking, savings, or credit account when you're ready to pull transactions."
   );
 
   return (

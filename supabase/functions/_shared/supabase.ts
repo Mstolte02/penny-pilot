@@ -29,3 +29,23 @@ export async function getAuthenticatedClient(req: Request): Promise<{
 
   return { client, user: { id: data.user.id, email: data.user.email } };
 }
+
+/**
+ * A privileged client backed by the service-role key, for operations RLS
+ * intentionally forbids from any user session — e.g. deleting the auth.users row
+ * during account deletion. Never expose this key to the client.
+ */
+export function getServiceRoleClient(): SupabaseClient {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error(
+      'Supabase function environment is missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.'
+    );
+  }
+
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}

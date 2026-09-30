@@ -20,20 +20,20 @@ export const affordVerdicts = {
   },
   caution: {
     title: 'Proceed with caution',
-    penny: 'It fits, but the rest of the month gets snug. Worth it? Your call, captain.',
+    penny: 'It fits, but the rest of the month gets tight. Your call, captain.',
   },
   grounded: {
     title: 'Grounded',
-    penny: 'This one would overdraw the flight plan. A goal transfer or next month works better.',
+    penny: 'This would put you over plan. Try a goal transfer, or wait for next month.',
   },
 } as const;
 
 /** Empty and error states — Penny owns all of them. */
 export const emptyStates = {
-  syncFailed: 'Lost radio contact with your bank — retrying.',
-  noTransactions: 'Nothing on the radar yet. New transactions will show up here for review.',
-  allReviewed: 'Radar is clear — every transaction is sorted.',
-  noSubscriptions: 'No recurring charges spotted yet. Penny keeps scanning.',
+  syncFailed: 'Lost radio contact with your bank. Trying again.',
+  noTransactions: 'Nothing on the radar yet. New transactions show up here to review.',
+  allReviewed: 'All clear. Every transaction is sorted.',
+  noSubscriptions: "No recurring charges spotted yet. I'll keep looking.",
 } as const;
 
 /**
@@ -42,20 +42,20 @@ export const emptyStates = {
  */
 export const notificationTemplates = {
   morningBriefing: (safeToday: string) => `Safe to spend today: ${safeToday}. Skies are clear. ✈️`,
-  billHeadsUp: (name: string, amount: string) => `Heads up — ${name} (${amount}) hits tomorrow.`,
+  billHeadsUp: (name: string, amount: string) => `${name} (${amount}) is due tomorrow.`,
   turbulence: (category: string) =>
-    `${category} is running ahead of plan this month. A quiet week levels it out.`,
+    `${category} is running ahead of plan this month. A quiet week would even it out.`,
   weeklyReport: (net: string) => `Weekly recap: ${net} net this week. Full report in the Logbook.`,
-  goalMilestone: (goal: string, pct: number) => `${goal} just crossed ${pct}% — worth a little celebration.`,
+  goalMilestone: (goal: string, pct: number) => `${goal} just passed ${pct}%. Nice work!`,
 } as const;
 
 /** The wizard's script — each setup step is a spell. */
 export const wizardScript = {
   welcome: "Every app has a setup wizard. I'm just the only one who dresses for it.",
   summon: 'First spell: summoning your transactions.',
-  sort: 'Now, a little organizational magic.',
+  sort: 'Now a little sorting magic.',
   reveal: 'Revealing hidden enchantments…',
-  flightPlan: 'Last one — charting your flight plan.',
-  transform: "Setup's done — the magic part is over. From here on out, we fly on real numbers.",
+  flightPlan: 'Last one: charting your flight plan.',
+  transform: "Setup's done. No more magic from here, just real numbers.",
   rerun: 'You rang? The hat still fits.',
 } as const;

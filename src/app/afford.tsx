@@ -48,10 +48,10 @@ export default function AffordScreen() {
 
   const reason =
     verdict === 'grounded'
-      ? `You have ${formatMoney(Math.max(0, safe.remaining))} of flexible budget left this month — this is ${formatMoney(amount - Math.max(0, safe.remaining))} past it.`
+      ? `You have ${formatMoney(Math.max(0, safe.remaining))} of flexible budget left this month. This is ${formatMoney(amount - Math.max(0, safe.remaining))} over that.`
       : verdict === 'caution'
         ? `It fits, but your daily number drops to ${formatMoney(Math.max(0, afterPerDay))} for the next ${safe.daysLeft} days.`
-        : `Covered by flexible budget with ${formatMoney(Math.max(0, safe.remaining) - amount)} still in the tank.`;
+        : `Your flexible budget covers it, with ${formatMoney(Math.max(0, safe.remaining) - amount)} still in the tank.`;
 
   return (
     <Screen

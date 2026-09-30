@@ -187,7 +187,7 @@ export default function HangarScreen() {
         id: 'smooth-air',
         icon: 'speedometer',
         title: 'Smooth Air',
-        requirement: 'Stay on or under the calendar pace',
+        requirement: 'Stay at or under pace for the month',
         unlocked: onPace,
       },
       {
@@ -216,7 +216,7 @@ export default function HangarScreen() {
     <Screen
       eyebrow="Flight school"
       title="The Hangar"
-      subtitle="Where good money habits earn their wings"
+      subtitle="Good money habits earn you wings"
       mascot={<PennyBadge expression="celebrating" />}>
       <ScrollView
         style={styles.panel}
@@ -238,7 +238,7 @@ export default function HangarScreen() {
             <ProgressBar value={progress} />
             <ThemedText type="small" themeColor="textSecondary">
               {next
-                ? `${next.minXp - view.xp} XP to ${next.name}. XP comes from real flying: categorizing, importing, goals, staying on pace.`
+                ? `${next.minXp - view.xp} XP to ${next.name}. You earn XP by categorizing, importing, setting goals, and staying on pace.`
                 : 'Top of the ladder. Penny salutes you.'}
             </ThemedText>
           </Card>
@@ -255,7 +255,7 @@ export default function HangarScreen() {
                   {streak}-day check-in streak
                 </ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Looking at your money regularly is the habit every other habit rides on.
+                  Checking in often makes every other money habit easier.
                 </ThemedText>
               </View>
             </View>
@@ -308,8 +308,8 @@ export default function HangarScreen() {
         <FadeInUp delay={240}>
           <SpeechBubble expression={view.onPace ? 'celebrating' : 'thinking'}>
             {view.onPace
-              ? `Flying clean this month — ${formatMoney(Math.max(0, view.safe.flexBudget - view.safe.flexSpent))} still in the tank. Wings get earned on months like this.`
-              : 'Every wing here comes from real habits, not taps. The next one is one good week away.'}
+              ? `Smooth flying this month. You still have ${formatMoney(Math.max(0, view.safe.flexBudget - view.safe.flexSpent))} in the tank.`
+              : 'Wings come from real habits. One good week could earn you the next one.'}
           </SpeechBubble>
         </FadeInUp>
 
@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
   wing: {
     width: '47.5%',
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: 5,
     padding: Spacing.two,
     gap: 4,
   },

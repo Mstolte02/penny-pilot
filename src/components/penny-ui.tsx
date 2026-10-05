@@ -644,16 +644,18 @@ export function ToggleChip({
       style={({ pressed }) => [
         styles.toggleChip,
         {
-          backgroundColor: selected ? theme.navy : theme.backgroundElement,
-          borderColor: selected ? theme.navy : theme.plateEdge,
-          borderBottomColor: selected ? theme.ink : theme.plateEdge,
+          // Copper + a check mark: reads as "chosen" on the paper screens and on the
+          // dark wizard alike (navy vanished against the wizard's night sky).
+          backgroundColor: selected ? theme.primary : theme.backgroundElement,
+          borderColor: selected ? theme.primaryHover : theme.plateEdge,
+          borderBottomColor: selected ? theme.leatherDark : theme.plateEdge,
           opacity: pressed ? 0.75 : 1,
         },
       ]}>
       <ThemedText
         type="smallBold"
-        style={{ color: selected ? theme.backgroundElement : theme.navy, fontWeight: 800 }}>
-        {label}
+        style={{ color: selected ? '#FFFFFF' : theme.navy, fontWeight: 800 }}>
+        {selected ? `✓ ${label}` : label}
       </ThemedText>
     </Pressable>
   );

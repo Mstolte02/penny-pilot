@@ -1,12 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from 'react';
+import { AppState } from 'react-native';
 
 import { mobileBudgetPlan } from '@/data/personal-finance-template';
 import {
@@ -17,6 +20,9 @@ import {
   type BudgetPlan,
   type MobileTransaction,
 } from '@/domain/mobile-finance';
+import { env } from '@/config/env';
+import { authService, bankSyncService } from '@/services';
+import { buildBankTransactions, type CategorySource } from '@/services/bank-feed';
 
 /**
  * Local persistence for everything the user touches. Backed by AsyncStorage today
@@ -27,11 +33,23 @@ import {
 
 const DB_PREFIX = 'penny:db:';
 
-export type TransactionSource = 'sample' | 'import' | 'manual';
+export type TransactionSource = 'sample' | 'import' | 'manual' | 'bank';
 
 export type StoredTransaction = MobileTransaction & {
   source: TransactionSource;
+  /** Bank rows only: where the category came from ("user" survives every re-sync). */
+  categorySource?: CategorySource;
 };
+
+export type BankSyncState = {
+  status: 'idle' | 'syncing' | 'done' | 'error' | 'signed-out';
+  lastSyncedAt: string | null;
+  message: string | null;
+};
+
+const BANK_LAST_SYNC_KEY = 'penny:bankLastSync';
+/** Don't hit Plaid more often than this on app open; "Sync now" ignores it. */
+const AUTO_SYNC_EVERY_MS = 10 * 60 * 1000;
 
 export type ForecastMethod = 'avg3' | 'avg6' | 'avg9' | 'avg12' | 'ewma';
 
@@ -285,6 +303,33 @@ const categoryRules: {
   },
 ];
 
+/**
+ * What the user filed this merchant under before. Only human decisions count: imported,
+ * manual, or bank rows the user categorized. Auto-categorized bank rows are skipped so a
+ * wrong Plaid guess can't reinforce itself.
+ */
+function choiceForMerchant(transactions: StoredTransaction[], merchant: string) {
+  const key = normalizeMerchantKey(merchant);
+  if (!key) return null;
+  const counts = new Map<string, { category: string; subcategory: string | null; count: number }>();
+  for (const transaction of transactions) {
+    if (transaction.type !== 'expense' || transaction.source === 'sample') continue;
+    if (!transaction.category || transaction.category === 'Uncategorized') continue;
+    if (transaction.source === 'bank' && transaction.categorySource !== 'user') continue;
+    if (normalizeMerchantKey(transaction.item) !== key) continue;
+    const entryKey = `${transaction.category}::${transaction.subcategory ?? ''}`;
+    const entry = counts.get(entryKey) ?? {
+      category: transaction.category,
+      subcategory: transaction.subcategory,
+      count: 0,
+    };
+    entry.count += 1;
+    counts.set(entryKey, entry);
+  }
+  const best = Array.from(counts.values()).sort((a, b) => b.count - a.count)[0];
+  return best ? { category: best.category, subcategory: best.subcategory } : null;
+}
+
 function guessFromRules(item: string) {
   return categoryRules.find((rule) => rule.pattern.test(item)) ?? null;
 }
@@ -311,6 +356,9 @@ type FinanceStore = {
   markReviewResolved: (id: string) => void;
   /** Best guess for an imported/manual item based on spending history. */
   guessCategory: (item: string) => { category: string; subcategory: string | null } | null;
+  /** Connected banks: sync state, and a manual "Sync now". */
+  bankSync: BankSyncState;
+  refreshBank: (options?: { sync?: boolean }) => Promise<void>;
   /** Wipes storage and returns the in-memory store to first-run seed data. */
   resetToSeeds: () => Promise<void>;
 };
@@ -327,6 +375,77 @@ export function FinanceProvider({ children }: PropsWithChildren) {
   const [cancelFlags, setCancelFlagsState] = useState<Record<string, boolean>>({});
   const [transactionEdits, setTransactionEditsState] = useState<Record<string, FeedTransactionPatch>>({});
   const [resolvedReviewIds, setResolvedReviewIdsState] = useState<string[]>([]);
+  const [bankSync, setBankSync] = useState<BankSyncState>({
+    status: 'idle',
+    lastSyncedAt: null,
+    message: null,
+  });
+  // The bank merge runs async, so it reads the latest plan from a ref, not a stale closure.
+  const planLinesRef = useRef<PlanLine[]>([]);
+  planLinesRef.current = planLines;
+  const bankBusy = useRef(false);
+
+  const refreshBank = useCallback(async (options: { sync?: boolean } = {}) => {
+    if (env.dataSource !== 'supabase' || bankBusy.current) return;
+    bankBusy.current = true;
+    try {
+      const user = await authService.getCurrentUser().catch(() => null);
+      if (!user) {
+        setBankSync((previous) => ({ ...previous, status: 'signed-out', message: null }));
+        return;
+      }
+      setBankSync((previous) => ({ ...previous, status: 'syncing', message: null }));
+      let syncNote: string | null = null;
+      if (options.sync) {
+        try {
+          await bankSyncService.syncAll();
+        } catch (error) {
+          // Still show what the server already has; say why it may be stale.
+          syncNote = error instanceof Error ? error.message : 'Could not reach your bank just now.';
+        }
+      }
+      const rows = await bankSyncService.listBankFeed();
+      setTransactionsState((previous) => {
+        const merchantChoice = (merchant: string) => choiceForMerchant(previous, merchant);
+        const bankRows = buildBankTransactions(rows, previous, planLinesRef.current, merchantChoice);
+        const next = [...previous.filter((transaction) => transaction.source !== 'bank'), ...bankRows];
+        persistCollection('transactions', next);
+        return next;
+      });
+      // Review now happens on the phone; empty the old server queue so nothing shows twice.
+      await bankSyncService.clearServerReviewQueue().catch(() => undefined);
+      const syncedAt = new Date().toISOString();
+      if (!syncNote) await AsyncStorage.setItem(BANK_LAST_SYNC_KEY, syncedAt).catch(() => undefined);
+      setBankSync({
+        status: syncNote ? 'error' : 'done',
+        lastSyncedAt: syncNote ? null : syncedAt,
+        message: syncNote,
+      });
+    } catch (error) {
+      setBankSync((previous) => ({
+        ...previous,
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Bank sync failed.',
+      }));
+    } finally {
+      bankBusy.current = false;
+    }
+  }, []);
+
+  // Sync on launch and whenever the app comes back to the foreground, at most every 10 minutes.
+  useEffect(() => {
+    if (!ready || env.dataSource !== 'supabase') return;
+    const maybeSync = async () => {
+      const last = await AsyncStorage.getItem(BANK_LAST_SYNC_KEY).catch(() => null);
+      const stale = !last || Date.now() - new Date(last).getTime() > AUTO_SYNC_EVERY_MS;
+      void refreshBank({ sync: stale });
+    };
+    void maybeSync();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void maybeSync();
+    });
+    return () => subscription.remove();
+  }, [ready, refreshBank]);
 
   useEffect(() => {
     let mounted = true;
@@ -427,11 +546,37 @@ export function FinanceProvider({ children }: PropsWithChildren) {
           return [...nextBase, ...rows];
         }),
       updateTransaction: (id, patch) =>
-        setTransactions((previous) =>
-          previous.map((transaction) =>
-            transaction.id === id ? { ...transaction, ...patch } : transaction
-          )
-        ),
+        setTransactions((previous) => {
+          const target = previous.find((transaction) => transaction.id === id);
+          const recategorized =
+            target?.source === 'bank' && patch.category !== undefined && patch.category !== 'Uncategorized';
+          const merchantKey = recategorized && target ? normalizeMerchantKey(target.item) : null;
+          return previous.map((transaction) => {
+            if (transaction.id === id) {
+              // A bank row stays a bank row (the editor writes source "manual"), or the
+              // next sync would add it a second time.
+              const sourcePatch = transaction.source === 'bank' ? { source: 'bank' as const } : {};
+              return recategorized
+                ? { ...transaction, ...patch, ...sourcePatch, categorySource: 'user' as const }
+                : { ...transaction, ...patch, ...sourcePatch };
+            }
+            if (
+              merchantKey &&
+              transaction.source === 'bank' &&
+              transaction.type === 'expense' &&
+              transaction.categorySource !== 'user' &&
+              normalizeMerchantKey(transaction.item) === merchantKey
+            ) {
+              return {
+                ...transaction,
+                category: patch.category ?? transaction.category,
+                subcategory: patch.subcategory !== undefined ? patch.subcategory : transaction.subcategory,
+                categorySource: 'history' as const,
+              };
+            }
+            return transaction;
+          });
+        }),
       deleteTransaction: (id) =>
         setTransactions((previous) => previous.filter((transaction) => transaction.id !== id)),
       setPlanLines: simpleSetter('planLines', setPlanLinesState),
@@ -460,6 +605,8 @@ export function FinanceProvider({ children }: PropsWithChildren) {
         setTransactionEditsState({});
         setResolvedReviewIdsState([]);
       },
+      bankSync,
+      refreshBank,
       guessCategory: (item) => {
         const normalized = item.trim().toLowerCase();
         const merchantKey = normalizeMerchantKey(item);
@@ -503,6 +650,8 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     cancelFlags,
     transactionEdits,
     resolvedReviewIds,
+    bankSync,
+    refreshBank,
   ]);
 
   if (!ready) return null;

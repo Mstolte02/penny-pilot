@@ -7,6 +7,7 @@ import { PillButton } from '@/components/penny-ui';
 import { plaidConsentCopy } from '@/constants/consent';
 import { useConsent } from '@/hooks/use-consent';
 import { authService, bankSyncService } from '@/services';
+import { useFinance } from '@/services/finance-store';
 
 type BankLinkButtonProps = {
   onStatusChange?: (message: string) => void;
@@ -21,6 +22,7 @@ export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const { grant } = useConsent();
+  const { refreshBank } = useFinance();
 
   const updateStatus = (message: string) => {
     onStatusChange?.(message);
@@ -37,7 +39,9 @@ export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
       updateStatus('Bank connected. Pulling your first transactions...');
       const institution = await bankSyncService.exchangePublicToken(success.publicToken);
       const syncResult = await bankSyncService.syncTransactions(institution.id);
-      const message = `${institution.name} synced. ${syncResult.added} new transactions are ready for review.`;
+      // Pull the new rows into the phone right away, sorted against the budget.
+      await refreshBank();
+      const message = `${institution.name} synced. ${syncResult.added} transactions came in. Anything Penny couldn't sort is waiting on your radar.`;
       updateStatus(message);
       Alert.alert('Bank connected', message);
     } catch (error) {

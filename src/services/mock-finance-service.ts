@@ -174,6 +174,14 @@ export const mockBankSyncService: BankSyncService = {
   async syncTransactions() {
     return { added: 3, modified: 0, removed: 0 };
   },
+  async syncAll() {
+    return { added: 0, modified: 0, removed: 0 };
+  },
+  async listBankFeed() {
+    // Demo mode has no bank; the phone's own data is the whole feed.
+    return [];
+  },
+  async clearServerReviewQueue() {},
   async listAccounts(): Promise<BankAccount[]> {
     return [
       {

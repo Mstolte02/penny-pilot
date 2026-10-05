@@ -24,6 +24,7 @@ import {
   SpeechBubble,
   ToggleChip,
 } from '@/components/penny-ui';
+import { BankSyncCard } from '@/components/bank-sync-card';
 import { FadeInUp } from '@/components/penny-motion';
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing } from '@/constants/theme';
@@ -296,6 +297,7 @@ export default function TransactionsScreen() {
     resolvedReviewIds,
     markReviewResolved,
     guessCategory,
+    refreshBank,
   } = useFinance();
   const [active, setActive] = useState('feed');
   const [reviewItems, setReviewItems] = useState<Transaction[]>([]);
@@ -606,7 +608,11 @@ export default function TransactionsScreen() {
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => void loadFeed('refresh')}
+              onRefresh={() => {
+                // Pulling down also asks every connected bank for new transactions.
+                void refreshBank({ sync: true });
+                void loadFeed('refresh');
+              }}
               tintColor={theme.primary}
             />
           }>
@@ -646,6 +652,10 @@ export default function TransactionsScreen() {
                 </View>
               )}
             </Card>
+          </FadeInUp>
+
+          <FadeInUp delay={50}>
+            <BankSyncCard />
           </FadeInUp>
 
           <FadeInUp delay={80}>
@@ -744,7 +754,7 @@ export default function TransactionsScreen() {
                               }
                               numberOfLines={1}>
                               {dayLabel(transaction.date)} · {transaction.category}
-                              {transaction.source === 'import' ? ' · imported' : ''}
+                              {transaction.source === 'import' ? ' · imported' : transaction.source === 'bank' ? ' · bank' : ''}
                             </ThemedText>
                           </View>
                           <ThemedText type="money" style={styles.feedAmount}>

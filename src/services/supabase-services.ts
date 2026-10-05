@@ -25,6 +25,7 @@ import type {
   FinanceDataService,
   ForecastService,
 } from '@/services/contracts';
+import type { BankFeedRow } from '@/services/bank-feed';
 import { supabase } from '@/services/supabase-client';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -513,6 +514,67 @@ export const supabaseBankSyncService: BankSyncService = {
       isoCurrencyCode: row.iso_currency_code,
       hidden: row.hidden,
     })) as BankAccount[];
+  },
+  async syncAll() {
+    const client = requireSupabase();
+    // No institutionId: the function syncs every bank this user has connected.
+    const { data, error } = await client.functions.invoke('plaid-sync-transactions', { body: {} });
+    if (error) {
+      throw new Error(await getFunctionErrorMessage(error, 'Could not sync your banks.'));
+    }
+    return data as { added: number; modified: number; removed: number };
+  },
+  async listBankFeed() {
+    const client = requireSupabase();
+    const rows: Record<string, unknown>[] = [];
+    // Page through everything; PostgREST caps a single response.
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await client
+        .from('transactions')
+        .select(
+          'id, date, merchant_name, original_description, amount, kind, pending, excluded_from_budget, ' +
+            'pfc:raw_provider_payload->personal_finance_category, ' +
+            'category:categories(name), subcategory:subcategories(name)'
+        )
+        .order('date', { ascending: false })
+        .range(from, from + 999);
+      if (error) {
+        throw error;
+      }
+      rows.push(...((data ?? []) as unknown as Record<string, unknown>[]));
+      if (!data || data.length < 1000) break;
+    }
+
+    return rows.map((row) => {
+      const pfc = (row.pfc ?? null) as { primary?: string; detailed?: string; confidence_level?: string } | null;
+      const category = row.category as { name?: string } | null;
+      const subcategory = row.subcategory as { name?: string } | null;
+      return {
+        id: row.id as string,
+        date: row.date as string,
+        merchantName: (row.merchant_name as string) ?? '',
+        originalDescription: (row.original_description as string) ?? '',
+        amount: Number(row.amount),
+        kind: row.kind as BankFeedRow['kind'],
+        pending: Boolean(row.pending),
+        excludedFromBudget: Boolean(row.excluded_from_budget),
+        serverCategory: category?.name ?? null,
+        serverSubcategory: subcategory?.name ?? null,
+        pfcPrimary: pfc?.primary ?? null,
+        pfcDetailed: pfc?.detailed ?? null,
+        pfcConfidence: pfc?.confidence_level ?? null,
+      };
+    });
+  },
+  async clearServerReviewQueue() {
+    const client = requireSupabase();
+    const { error } = await client
+      .from('transactions')
+      .update({ needs_review: false, updated_at: new Date().toISOString() })
+      .eq('needs_review', true);
+    if (error) {
+      throw error;
+    }
   },
 };
 

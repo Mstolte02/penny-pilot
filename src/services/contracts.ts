@@ -1,4 +1,5 @@
 import type { ConsentMethod, ConsentType } from '@/constants/consent';
+import type { BankFeedRow } from '@/services/bank-feed';
 import type {
   BankAccount,
   BankInstitution,
@@ -47,6 +48,12 @@ export interface BankSyncService {
   exchangePublicToken(publicToken: string): Promise<BankInstitution>;
   syncTransactions(institutionId: Id): Promise<{ added: number; modified: number; removed: number }>;
   listAccounts(): Promise<BankAccount[]>;
+  /** Pulls new transactions for every connected bank. */
+  syncAll(): Promise<{ added: number; modified: number; removed: number }>;
+  /** Every synced bank transaction, with Plaid's category and any server-side review. */
+  listBankFeed(): Promise<BankFeedRow[]>;
+  /** The phone now owns review, so clear the server-side review flags. */
+  clearServerReviewQueue(): Promise<void>;
 }
 
 export interface FinanceDataService {

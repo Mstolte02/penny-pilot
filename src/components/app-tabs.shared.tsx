@@ -58,6 +58,9 @@ export default function AppTabs() {
           <TabTrigger name="authCallback" href="/auth/callback" asChild>
             <View style={styles.hiddenTab} />
           </TabTrigger>
+          <TabTrigger name="plaidOauth" href="/plaid/oauth" asChild>
+            <View style={styles.hiddenTab} />
+          </TabTrigger>
         </TabBar>
       </TabList>
     </Tabs>

@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BankLinkButton } from '@/components/bank-link-button';
 import { Card, PennyBadge, PillButton, StepDots, ToggleChip } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Radius, Spacing, WizardColors } from '@/constants/theme';
@@ -197,6 +198,7 @@ export default function SetupScreen() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [bankLinkStatus, setBankLinkStatus] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSummary, setImportSummary] = useState<string | null>(null);
   const [transform] = useState(() => new Animated.Value(0));
@@ -531,6 +533,14 @@ export default function SetupScreen() {
                     onPress={() => setSyncIntent('later')}
                   />
                 </View>
+                {syncIntent === 'now' ? (
+                  <View style={styles.importPanel}>
+                    <BankLinkButton onStatusChange={setBankLinkStatus} />
+                    <ThemedText type="small" style={{ color: WizardColors.textSecondary }}>
+                      {bankLinkStatus ?? 'Plaid opens a secure window to pick your bank.'}
+                    </ThemedText>
+                  </View>
+                ) : null}
                 {syncIntent === 'later' ? (
                   <View style={styles.importPanel}>
                     <PillButton tone="primary" disabled={importing} onPress={() => void importBankFile()}>

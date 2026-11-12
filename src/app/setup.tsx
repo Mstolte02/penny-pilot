@@ -22,7 +22,7 @@ import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Radius, Spacing, WizardColors } from '@/constants/theme';
 import { BUDGET_STYLE_KEY, SETUP_COMPLETE_KEY, WIZARD_STATE_KEY, wizardScript } from '@/constants/penny-voice';
 import type { BudgetStyle, GoalKind, SetupPreferences } from '@/domain/finance';
-import { formatMoney, monthKey } from '@/domain/mobile-finance';
+import { forecastMonths, formatMoney, monthKey, todayLocal } from '@/domain/mobile-finance';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { authService, financeDataService } from '@/services';
 import { useFinance, type GoalPlan, type PlanLine } from '@/services/finance-store';
@@ -301,7 +301,7 @@ export default function SetupScreen() {
       current: existing ? String(existing.current) : '',
       target: existing ? String(existing.target) : '',
       monthlyTarget: existing ? String(existing.monthlyTarget) : '',
-      targetDate: existing?.targetDate ?? monthInputAfter(new Date().toISOString().slice(0, 7), 12),
+      targetDate: existing?.targetDate ?? monthInputAfter(todayLocal().slice(0, 7), 12),
       mode: existing?.mode ?? template.defaults.mode ?? 'track',
     });
   };
@@ -327,8 +327,12 @@ export default function SetupScreen() {
   };
 
   const buildWizardPlanLines = (): PlanLine[] => {
-    const expenses = storeTransactions.filter((transaction) => transaction.type === 'expense');
-    const divisor = Math.max(new Set(expenses.map((transaction) => monthKey(transaction.date))).size, 1);
+    // Full months only: a 90-day bank link touches four months, two of them partial.
+    const fullMonths = new Set(forecastMonths(storeTransactions));
+    const expenses = storeTransactions.filter(
+      (transaction) => transaction.type === 'expense' && fullMonths.has(monthKey(transaction.date))
+    );
+    const divisor = Math.max(fullMonths.size, 1);
     const normalize = (value: string | null | undefined) =>
       (value ?? '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
     // Loose match for naming drift ("Fun Stuff" vs "Subscriptions & Fun"), but
@@ -756,7 +760,7 @@ export default function SetupScreen() {
 
             <View style={styles.controls}>
               {isTransform ? (
-                <PillButton tone="primary" onPress={() => router.replace('/')}>
+                <PillButton tone="primary" onPress={() => router.navigate('/')}>
                   Start flying
                 </PillButton>
               ) : (

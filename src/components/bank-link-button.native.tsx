@@ -9,8 +9,13 @@ import { useConsent } from '@/hooks/use-consent';
 import { authService, bankSyncService } from '@/services';
 import { useFinance } from '@/services/finance-store';
 
+/** Delays before each first-sync attempt: right away, then over about a minute. */
+const FIRST_SYNC_WAITS_MS = [0, 4000, 8000, 12000, 16000, 20000];
+
 type BankLinkButtonProps = {
   onStatusChange?: (message: string) => void;
+  /** Called after a bank is connected (or found to be connected already). */
+  onConnected?: () => void;
 };
 
 /**
@@ -18,7 +23,7 @@ type BankLinkButtonProps = {
  * line, so a tap never "does nothing": not signed in, the data-sharing notice, a
  * server or Plaid error, a cancel, and success all speak up.
  */
-export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
+export function BankLinkButton({ onStatusChange, onConnected }: BankLinkButtonProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const { grant } = useConsent();
@@ -38,12 +43,35 @@ export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
     try {
       updateStatus('Bank connected. Pulling your first transactions...');
       const institution = await bankSyncService.exchangePublicToken(success.publicToken);
-      const syncResult = await bankSyncService.syncTransactions(institution.id);
-      // Pull the new rows into the phone right away, sorted against the budget.
-      await refreshBank();
-      const message = `${institution.name} synced. ${syncResult.added} transactions came in. Anything Penny couldn't sort is waiting on your radar.`;
+      if (institution.duplicate) {
+        const message = `${institution.name} is already connected, so Penny kept the one you had. If it stopped syncing, tap Reconnect next to it under Bank Accounts.`;
+        updateStatus(message);
+        Alert.alert('Already connected', message);
+        onConnected?.();
+        return;
+      }
+      // A new connection often has no history ready for the first few seconds, and a sync
+      // that early returns nothing. Try again for about a minute before giving up.
+      let added = 0;
+      for (const waitMs of FIRST_SYNC_WAITS_MS) {
+        if (waitMs > 0) {
+          updateStatus(`Waiting for ${institution.name} to send your history...`);
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
+        const syncResult = await bankSyncService.syncTransactions(institution.id);
+        added += syncResult.added;
+        if (added > 0) break;
+      }
+      // Pull the new rows into the phone right away, sorted against the budget, and give
+      // any $0 plan lines their amounts from the new history.
+      await refreshBank({ fillEmptyLines: true });
+      const message =
+        added > 0
+          ? `${institution.name} synced. ${added} transactions came in. Anything Penny couldn't sort is waiting on your radar.`
+          : `${institution.name} is connected, but your history is still on its way. Penny will pull it in the next time you open the app.`;
       updateStatus(message);
       Alert.alert('Bank connected', message);
+      onConnected?.();
     } catch (error) {
       fail(error instanceof Error ? error.message : "Bank sync didn't finish.");
     } finally {
@@ -112,6 +140,75 @@ export function BankLinkButton({ onStatusChange }: BankLinkButtonProps) {
   return (
     <PillButton tone="primary" disabled={busy} onPress={() => void onPress()}>
       {busy ? 'Connecting...' : 'Connect bank'}
+    </PillButton>
+  );
+}
+
+type ReconnectBankButtonProps = {
+  institutionId: string;
+  institutionName: string;
+  onStatusChange?: (message: string) => void;
+  onDone?: () => void;
+};
+
+/**
+ * Repairs a bank that needs the user to sign in again (a changed password, an expired
+ * consent). Plaid's update mode keeps the same connection, so no transaction is duplicated.
+ */
+export function ReconnectBankButton({
+  institutionId,
+  institutionName,
+  onStatusChange,
+  onDone,
+}: ReconnectBankButtonProps) {
+  const [busy, setBusy] = useState(false);
+  const { refreshBank } = useFinance();
+
+  const finish = (message: string, title?: string) => {
+    setBusy(false);
+    onStatusChange?.(message);
+    if (title) Alert.alert(title, message);
+  };
+
+  const start = async () => {
+    if (busy) return;
+    setBusy(true);
+    onStatusChange?.(`Opening ${institutionName}...`);
+    try {
+      const { linkToken } = await bankSyncService.createLinkToken({ itemId: institutionId });
+      const session = await createPlaidLinkSession({
+        token: linkToken,
+        onSuccess: () => {
+          void (async () => {
+            try {
+              onStatusChange?.(`${institutionName} is back. Catching up on your transactions...`);
+              await bankSyncService.syncTransactions(institutionId);
+              await refreshBank();
+              finish(`${institutionName} is reconnected and up to date.`, 'Bank reconnected');
+              onDone?.();
+            } catch (error) {
+              finish(error instanceof Error ? error.message : "Sync didn't finish.", "Couldn't sync");
+            }
+          })();
+        },
+        onExit: (exit) =>
+          exit.error
+            ? finish(
+                exit.error.displayMessage || exit.error.errorMessage || 'Plaid closed with an error.',
+                "Couldn't reconnect"
+              )
+            : finish('Reconnect cancelled.'),
+        onEvent: () => undefined,
+      });
+      await session.open(true);
+    } catch (error) {
+      finish(error instanceof Error ? error.message : "Couldn't open Plaid Link.", "Couldn't reconnect");
+    }
+  };
+
+  return (
+    <PillButton tone="primary" disabled={busy} onPress={() => void start()}>
+      {busy ? 'Reconnecting...' : 'Reconnect'}
     </PillButton>
   );
 }

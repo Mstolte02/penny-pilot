@@ -3,7 +3,9 @@ import {
   accountKind,
   decryptAccessToken,
   normalizeMerchant,
+  PlaidError,
   plaidFetch,
+  RELOGIN_ERROR_CODES,
 } from '../_shared/plaid.ts';
 import { getAuthenticatedClient } from '../_shared/supabase.ts';
 
@@ -49,12 +51,21 @@ type SyncResponse = {
 type Counts = { added: number; modified: number; removed: number };
 
 // Money moving between the user's own accounts, and card payments: never spending.
-const TRANSFER_PRIMARIES = new Set(['TRANSFER_IN', 'TRANSFER_OUT']);
-const TRANSFER_DETAILED = new Set(['LOAN_PAYMENTS_CREDIT_CARD_PAYMENT']);
+// Venmo, Zelle and ATM cash are TRANSFER_OUT to Plaid but pay for real things, so they count.
+const TRANSFER_DETAILED = new Set([
+  'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+  'TRANSFER_IN_ACCOUNT_TRANSFER',
+  'TRANSFER_OUT_ACCOUNT_TRANSFER',
+  'TRANSFER_IN_SAVINGS',
+  'TRANSFER_OUT_SAVINGS',
+  'TRANSFER_IN_INVESTMENT_AND_RETIREMENT_FUNDS',
+  'TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS',
+  'TRANSFER_IN_CASH_ADVANCES_AND_LOANS',
+]);
 
 function isTransfer(transaction: PlaidTransaction) {
   const pfc = transaction.personal_finance_category;
-  return Boolean(pfc && (TRANSFER_PRIMARIES.has(pfc.primary) || TRANSFER_DETAILED.has(pfc.detailed)));
+  return Boolean(pfc && TRANSFER_DETAILED.has(pfc.detailed));
 }
 
 // deno-lint-ignore no-explicit-any
@@ -198,12 +209,17 @@ Deno.serve(async (req) => {
         total.removed += counts.removed;
       } catch (error) {
         // One bank needing a re-login shouldn't stop the others from syncing.
+        const relogin =
+          error instanceof PlaidError && error.code !== null && RELOGIN_ERROR_CODES.has(error.code);
+        const bank = item.institution_name ?? 'A bank';
         failures.push(
-          `${item.institution_name ?? 'A bank'}: ${error instanceof Error ? error.message : 'sync failed'}`
+          relogin
+            ? `${bank} needs you to sign in again. Tap Reconnect under Bank Accounts.`
+            : `${bank}: ${error instanceof Error ? error.message : 'sync failed'}`
         );
         await client
           .from('plaid_items')
-          .update({ status: 'error', updated_at: new Date().toISOString() })
+          .update({ status: relogin ? 'needs-reconnect' : 'error', updated_at: new Date().toISOString() })
           .eq('id', item.id)
           .eq('user_id', user.id);
       }

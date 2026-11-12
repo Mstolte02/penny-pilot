@@ -53,7 +53,7 @@ export default function AuthCallbackScreen() {
       .then(() => {
         if (!mounted) return;
         setStatus('Signed in. Taking you back to Penny Pilot...');
-        redirectTimer = setTimeout(() => router.replace('/auth'), 500);
+        redirectTimer = setTimeout(() => router.navigate('/auth'), 500);
       })
       .catch((error: unknown) => {
         if (!mounted) return;
@@ -88,7 +88,7 @@ export default function AuthCallbackScreen() {
 
           {failed && (
             <View style={styles.actions}>
-              <PillButton tone="primary" onPress={() => router.replace('/auth')}>
+              <PillButton tone="primary" onPress={() => router.navigate('/auth')}>
                 Back to sign in
               </PillButton>
             </View>

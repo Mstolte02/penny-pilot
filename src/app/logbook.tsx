@@ -33,6 +33,7 @@ import {
   monthKey,
   monthlyIncome,
   monthlySpend,
+  todayLocal,
   uniqueMonths,
 } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
@@ -89,7 +90,7 @@ type DrillCategory = { name: string; value: number; share: number; color: string
 
 export default function LogbookScreen() {
   const theme = useTheme();
-  const { transactions, planLines } = useFinance();
+  const { transactions, planLines, goals } = useFinance();
   const [active, setActive] = useState('report');
   const [weekly, setWeekly] = useState(100);
   const [openCategory, setOpenCategory] = useState<string | null>(null);
@@ -117,7 +118,8 @@ export default function LogbookScreen() {
     return { bySection, total };
   }, [planLines]);
 
-  const [month, setMonth] = useState(() => base.months[base.months.length - 1] ?? '');
+  // No data yet: show this month, not "Invalid Date".
+  const [month, setMonth] = useState(() => base.months[base.months.length - 1] ?? todayLocal().slice(0, 7));
 
   const report = useMemo(() => {
     const monthExpenses = transactions.filter(
@@ -242,18 +244,23 @@ export default function LogbookScreen() {
     : null;
 
   const netWorth = useMemo(() => {
-    // Anchor the trendline to the real savings balance at its as-of month, then
-    // walk monthly net backward and forward from there.
-    const anchorMonth = mobileSavingsConfig.asOfDate.slice(0, 7);
+    // Anchor the trendline to what the user says they have saved today (their goals'
+    // current balances), then walk monthly net backward. No goals: savings since day one.
     const months = base.months;
-    const anchorIndex = Math.max(0, months.indexOf(anchorMonth));
+    const saved = goals.reduce((sum, goal) => sum + (goal.current || 0), 0);
     const balances = new Array<number>(months.length).fill(0);
-    balances[anchorIndex] = mobileSavingsConfig.currentSavings;
-    for (let index = anchorIndex + 1; index < months.length; index += 1) {
-      balances[index] = balances[index - 1] + (base.net[months[index]] ?? 0);
-    }
-    for (let index = anchorIndex - 1; index >= 0; index -= 1) {
-      balances[index] = balances[index + 1] - (base.net[months[index + 1]] ?? 0);
+    if (saved > 0 && months.length > 0) {
+      const last = months.length - 1;
+      balances[last] = saved;
+      for (let index = last - 1; index >= 0; index -= 1) {
+        balances[index] = balances[index + 1] - (base.net[months[index + 1]] ?? 0);
+      }
+    } else {
+      let running = 0;
+      months.forEach((month, index) => {
+        running += base.net[month] ?? 0;
+        balances[index] = running;
+      });
     }
     const window = months.slice(-12);
     const offset = months.length - window.length;
@@ -265,7 +272,7 @@ export default function LogbookScreen() {
     const yearAgo = points[0]?.value ?? 0;
 
     return { points, current, change: current - yearAgo };
-  }, [base]);
+  }, [base, goals]);
 
   const education = useMemo(() => educationCurve(weekly), [weekly]);
   const educationFinal = education[education.length - 1]?.value ?? 0;
@@ -526,7 +533,7 @@ export default function LogbookScreen() {
             <Card style={styles.chartCard}>
               <ThemedText type="smallBold">Net worth · last 12 months</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                Starts from your real savings balance and moves by each month&apos;s net.
+                Starts from what your goals say you have saved, and moves by each month&apos;s net.
               </ThemedText>
               <ExpandableChart
                 title="Net worth"

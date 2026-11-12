@@ -20,7 +20,7 @@ export default function PlaidOAuthReturn() {
   useEffect(() => {
     const timer = setTimeout(() => {
       if (router.canGoBack()) router.back();
-      else router.replace('/transactions');
+      else router.navigate('/transactions');
     }, 150);
     return () => clearTimeout(timer);
   }, [router]);

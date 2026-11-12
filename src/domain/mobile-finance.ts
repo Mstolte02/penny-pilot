@@ -103,6 +103,12 @@ export function formatMoney(value: number, maximumFractionDigits = 0) {
   });
 }
 
+/** Today as YYYY-MM-DD on the phone's own clock. toISOString() is UTC, so a US evening was "tomorrow". */
+export function todayLocal(now: Date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 export function monthKey(date: string) {
   return date.slice(0, 7);
 }
@@ -187,6 +193,27 @@ export function uniqueMonths(transactions: MobileTransaction[]) {
   return Array.from(new Set(transactions.map((transaction) => monthKey(transaction.date)))).sort();
 }
 
+/**
+ * The months that are fair to average. A bank link brings about 90 days, which touches
+ * four calendar months: a partial first month and the month in progress. Dividing by four
+ * made every plan about 25% low. Partial months drop out while full months remain.
+ */
+export function forecastMonths(transactions: MobileTransaction[], now: Date = new Date()) {
+  let months = uniqueMonths(transactions);
+  const current = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  if (months.length > 1 && months[months.length - 1] >= current) {
+    months = months.filter((month) => month < current);
+  }
+  if (months.length > 1) {
+    const first = months[0];
+    const firstDay = transactions
+      .filter((transaction) => monthKey(transaction.date) === first)
+      .reduce((min, transaction) => Math.min(min, Number(transaction.date.slice(8, 10)) || 1), 31);
+    if (firstDay > 7) months = months.slice(1);
+  }
+  return months;
+}
+
 export function addMonths(month: string, count: number) {
   const [year, monthNumber] = month.split('-').map(Number);
   const date = new Date(year, monthNumber - 1 + count, 1);
@@ -268,7 +295,7 @@ export function ewmaForecast(values: number[], alpha = EWMA_ALPHA) {
 
 export function avgActualMonthlySavings(transactions: MobileTransaction[], windowMonths = 6) {
   const net = actualMonthlyNet(transactions);
-  const months = uniqueMonths(transactions).slice(-windowMonths);
+  const months = forecastMonths(transactions).slice(-windowMonths);
 
   return mean(months.map((month) => net[month] ?? 0));
 }
@@ -276,7 +303,7 @@ export function avgActualMonthlySavings(transactions: MobileTransaction[], windo
 export function ewmaMonthlySavings(transactions: MobileTransaction[], alpha = EWMA_ALPHA) {
   const net = actualMonthlyNet(transactions);
 
-  return ewmaForecast(uniqueMonths(transactions).map((month) => net[month] ?? 0), alpha);
+  return ewmaForecast(forecastMonths(transactions).map((month) => net[month] ?? 0), alpha);
 }
 
 function lineMatchesTransaction(
@@ -303,7 +330,7 @@ function budgetLineMonthlyActuals(
   transactions: MobileTransaction[],
   sectionTitle: string
 ) {
-  const months = uniqueMonths(transactions);
+  const months = forecastMonths(transactions);
   const byMonth: Record<string, number> = {};
 
   for (const transaction of transactions) {

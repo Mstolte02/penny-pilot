@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -81,7 +82,7 @@ const NOTIFICATION_DEFAULTS: Record<NotificationKey, boolean> = {
 export default function AccountScreen() {
   const router = useRouter();
   const { preference, setPreference } = useThemePreference();
-  const { resetToSeeds } = useFinance();
+  const { resetToSeeds, signOutAndClear, clearLocal } = useFinance();
   const { syncToServer: syncConsentToServer } = useConsent();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [status, setStatus] = useState<string>('Checking session...');
@@ -149,8 +150,7 @@ export default function AccountScreen() {
     try {
       await authService.deleteAccount();
       // Server data is gone; clear local state and the session UI too.
-      await resetToSeeds();
-      await AsyncStorage.multiRemove([SETUP_COMPLETE_KEY, BUDGET_STYLE_KEY]).catch(() => {});
+      await clearLocal();
       setUser(null);
       setConfirmingDelete(false);
       setDeletePhrase('');
@@ -203,14 +203,28 @@ export default function AccountScreen() {
     }
   };
 
-  const signOut = async () => {
+  // Signing out saves the plan to the account, then clears it from this phone, so the
+  // next person to use the phone never sees it. Sign back in and it all comes back.
+  const signOut = async (options: { skipSave?: boolean } = {}) => {
     setBusy(true);
     try {
-      await authService.signOut();
+      await signOutAndClear(options);
       setUser(null);
-      setStatus('Signed out.');
+      setStatus('Signed out. Your plan is saved to your account.');
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Sign-out didn't go through.");
+      if (!options.skipSave) {
+        // The save failed (most often no signal). Signing out now would lose recent changes.
+        Alert.alert(
+          "Couldn't save your plan",
+          'Penny could not reach your account, so your latest changes are only on this phone. Sign out anyway and lose them?',
+          [
+            { text: 'Stay signed in', style: 'cancel' },
+            { text: 'Sign out anyway', style: 'destructive', onPress: () => void signOut({ skipSave: true }) },
+          ]
+        );
+      } else {
+        setStatus(error instanceof Error ? error.message : "Sign-out didn't go through.");
+      }
     } finally {
       setBusy(false);
     }

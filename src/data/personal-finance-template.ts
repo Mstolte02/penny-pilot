@@ -1,10 +1,8 @@
 import type { BudgetPlan, MobileTransaction, SavingsConfig } from '@/domain/mobile-finance';
 
 export const mobileBudgetPlan: BudgetPlan = {
-  income: [
-    { name: 'Primary income', biweekly: 1800, monthly: 3900 },
-    { name: 'Partner or secondary income', biweekly: 1390, monthly: 3012 },
-  ],
+  // Income comes from the user's own deposits, never from this template.
+  income: [],
   sections: [
     {
       title: 'Essentials',
@@ -37,7 +35,6 @@ export const mobileBudgetPlan: BudgetPlan = {
       lines: [
         { name: 'Student Loans', type: 'fixed', monthly: 299 },
         { name: 'Personal Loans', type: 'fixed', monthly: 169 },
-        { name: 'Medical Payments', type: 'fixed', monthly: 200 },
       ],
     },
     {
@@ -72,17 +69,12 @@ export const mobileBudgetPlan: BudgetPlan = {
 };
 
 export const mobileSavingsConfig: SavingsConfig = {
-  currentSavings: 11933,
-  asOfDate: '2026-02-07',
-  monthlySavingsTarget: 1359,
-  plannedExpenses: [{ date: '2026-06-09', description: 'Major planned event', amount: 9028 }],
+  currentSavings: 0,
+  asOfDate: '2026-01-01',
+  monthlySavingsTarget: 0,
+  plannedExpenses: [],
   recurringExpenses: [],
-  allocation: [
-    { account: 'Retirement', biweekly: 269, monthly: 538, yearly: 7000, pct: 0.434 },
-    { account: 'House Fund', biweekly: 200, monthly: 400, yearly: 5200, pct: 0.3224 },
-    { account: 'General Investment', biweekly: 100, monthly: 200, yearly: 2600, pct: 0.1612 },
-    { account: 'High-Yield Savings', biweekly: 51, monthly: 102, yearly: 1329, pct: 0.0824 },
-  ],
+  allocation: [],
   mortgage: {
     aprDefault: 0.0675,
     termYears: 30,

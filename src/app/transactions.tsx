@@ -30,7 +30,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing } from '@/constants/theme';
 import { emptyStates } from '@/constants/penny-voice';
 import type { Category, Subcategory, Transaction } from '@/domain/finance';
-import { formatMoney, monthKey, uniqueMonths } from '@/domain/mobile-finance';
+import { formatMoney, monthKey, todayLocal, uniqueMonths } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
 import { categorizationService, financeDataService } from '@/services';
 import type { CategorizationSuggestion } from '@/services/contracts';
@@ -132,7 +132,7 @@ function detectSubscriptions(
   const excludedCategories = new Set(['Essentials', 'Debt', 'Income', 'Health', 'Home']);
   const monthsAvailable = uniqueMonths(transactions).length;
   const sortedDates = transactions.map((transaction) => transaction.date).sort();
-  const latestDate = sortedDates[sortedDates.length - 1] ?? new Date().toISOString().slice(0, 10);
+  const latestDate = sortedDates[sortedDates.length - 1] ?? todayLocal();
   const latestTime = new Date(`${latestDate}T12:00:00`).getTime();
   const byItem = new Map<string, { amounts: number[]; months: Set<string>; dates: string[]; sample: StoredTransaction }>();
 
@@ -402,7 +402,7 @@ export default function TransactionsScreen() {
       mode: 'manual',
       title: transaction ? 'Edit entry' : 'Add manual transaction',
       id: transaction?.id,
-      date: transaction?.date ?? new Date().toISOString().slice(0, 10),
+      date: transaction?.date ?? todayLocal(),
       merchantName: transaction?.item ?? '',
       category: transaction?.category ?? 'Uncategorized',
       amount: transaction ? String(Math.abs(transaction.amount)) : '',
@@ -426,7 +426,7 @@ export default function TransactionsScreen() {
       const isTransfer = editor.kind === 'transfer';
       const next: StoredTransaction = {
         id: editor.id ?? `manual-${Date.now()}`,
-        date: editor.date || new Date().toISOString().slice(0, 10),
+        date: editor.date || todayLocal(),
         item: merchantName,
         moneyIn: isExpense || isTransfer ? 0 : amount,
         moneyOut: isExpense || isTransfer ? amount : 0,

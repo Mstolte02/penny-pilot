@@ -1,19 +1,43 @@
 const plaidBaseUrls = {
   sandbox: 'https://sandbox.plaid.com',
-  development: 'https://development.plaid.com',
   production: 'https://production.plaid.com',
 } as const;
 
 type PlaidEnv = keyof typeof plaidBaseUrls;
 
 function getPlaidEnv(): PlaidEnv {
-  const value = Deno.env.get('PLAID_ENV') ?? 'sandbox';
-  if (value === 'development' || value === 'production' || value === 'sandbox') {
+  const value = (Deno.env.get('PLAID_ENV') ?? 'sandbox').trim().toLowerCase();
+  if (value === 'production' || value === 'sandbox') {
     return value;
   }
 
-  return 'sandbox';
+  // A typo must not quietly send real users to the sandbox.
+  throw new Error(`PLAID_ENV must be "sandbox" or "production", not "${value}".`);
 }
+
+/** Plaid's error, with its code kept so callers can tell a re-login from an outage. */
+export class PlaidError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | null,
+    readonly type: string | null
+  ) {
+    super(message);
+  }
+}
+
+/** Errors that only the user can fix, by signing in to their bank again. */
+export const RELOGIN_ERROR_CODES = new Set([
+  'ITEM_LOGIN_REQUIRED',
+  'PENDING_EXPIRATION',
+  'PENDING_DISCONNECT',
+  'ACCESS_NOT_GRANTED',
+  'NO_ACCOUNTS',
+  'INVALID_UPDATED_USERNAME',
+]);
+
+/** Plaid has already forgotten this item, so removing it again is a success. */
+export const ITEM_GONE_ERROR_CODES = new Set(['ITEM_NOT_FOUND', 'INVALID_ACCESS_TOKEN']);
 
 function getPlaidCredentials() {
   const clientId = Deno.env.get('PLAID_CLIENT_ID');
@@ -36,7 +60,11 @@ export async function plaidFetch<T>(path: string, body: Record<string, unknown>)
   const payload = await response.json();
 
   if (!response.ok) {
-    throw new Error(payload.error_message ?? payload.display_message ?? 'Plaid request failed.');
+    throw new PlaidError(
+      payload.display_message ?? payload.error_message ?? 'Plaid request failed.',
+      payload.error_code ?? null,
+      payload.error_type ?? null
+    );
   }
 
   return payload as T;
@@ -90,6 +118,21 @@ export async function decryptAccessToken(value: string) {
   );
 
   return new TextDecoder().decode(plaintext);
+}
+
+/** Revokes an item at Plaid. Throws if Plaid still holds it, so callers never drop a live token. */
+export async function removePlaidItem(accessTokenCiphertext: string) {
+  const accessToken = await decryptAccessToken(accessTokenCiphertext);
+  // Two tries: the second covers a passing timeout.
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await plaidFetch('/item/remove', { access_token: accessToken });
+      return;
+    } catch (error) {
+      if (error instanceof PlaidError && error.code && ITEM_GONE_ERROR_CODES.has(error.code)) return;
+      if (attempt >= 2) throw error;
+    }
+  }
 }
 
 export function accountKind(type?: string, subtype?: string) {

@@ -1,5 +1,6 @@
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import { Platform } from 'react-native';
 
 import type {
   BankAccount,
@@ -17,6 +18,7 @@ import type {
   UserProfile,
 } from '@/domain/finance';
 import type {
+  AppStateService,
   AuthService,
   BankSyncService,
   CategorizationService,
@@ -465,9 +467,12 @@ export const supabaseConsentService: ConsentService = {
 };
 
 export const supabaseBankSyncService: BankSyncService = {
-  async createLinkToken() {
+  async createLinkToken(options = {}) {
     const client = requireSupabase();
-    const { data, error } = await client.functions.invoke('plaid-create-link-token');
+    // The platform decides how an OAuth bank returns to the app (universal link vs package).
+    const { data, error } = await client.functions.invoke('plaid-create-link-token', {
+      body: { itemId: options.itemId ?? null, platform: Platform.OS },
+    });
     if (error) {
       throw new Error(await getFunctionErrorMessage(error, 'Could not create Plaid Link token.'));
     }
@@ -481,7 +486,37 @@ export const supabaseBankSyncService: BankSyncService = {
     if (error) {
       throw new Error(await getFunctionErrorMessage(error, 'Could not finish bank connection.'));
     }
-    return data as BankInstitution;
+    return data as BankInstitution & { duplicate?: boolean };
+  },
+  async listInstitutions() {
+    const client = requireSupabase();
+    // Never select the token column; the phone has no use for it.
+    const { data, error } = await client
+      .from('plaid_items')
+      .select('id, user_id, institution_id, institution_name, status, last_synced_at')
+      .order('created_at', { ascending: true });
+    if (error) {
+      throw error;
+    }
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      provider: 'plaid',
+      providerInstitutionId: row.institution_id,
+      name: row.institution_name ?? 'Connected bank',
+      logoUrl: null,
+      status: row.status,
+      lastSyncedAt: row.last_synced_at,
+    })) as BankInstitution[];
+  },
+  async removeInstitution(institutionId) {
+    const client = requireSupabase();
+    const { error } = await client.functions.invoke('plaid-remove-item', {
+      body: { itemId: institutionId },
+    });
+    if (error) {
+      throw new Error(await getFunctionErrorMessage(error, 'Could not disconnect that bank.'));
+    }
   },
   async syncTransactions(institutionId) {
     const client = requireSupabase();
@@ -537,6 +572,8 @@ export const supabaseBankSyncService: BankSyncService = {
             'category:categories(name), subcategory:subcategories(name)'
         )
         .order('date', { ascending: false })
+        // A second key keeps same-day rows in a fixed order, so no row lands on two pages.
+        .order('id', { ascending: true })
         .range(from, from + 999);
       if (error) {
         throw error;
@@ -820,5 +857,44 @@ export const supabaseForecastService: ForecastService = {
       throw error;
     }
     return data.model as ForecastSnapshot['model'];
+  },
+};
+
+export const supabaseAppStateService: AppStateService = {
+  async currentUserId() {
+    const client = requireSupabase();
+    const { data } = await client.auth.getSession();
+    return data.session?.user.id ?? null;
+  },
+  onAuthChange(callback) {
+    const client = requireSupabase();
+    const { data } = client.auth.onAuthStateChange((_event, session) => {
+      callback(session?.user.id ?? null);
+    });
+    return () => data.subscription.unsubscribe();
+  },
+  async load() {
+    const client = requireSupabase();
+    const { data, error } = await client.from('user_app_state').select('state, updated_at').maybeSingle();
+    if (error) {
+      throw error;
+    }
+    return data ? { state: data.state, updatedAt: data.updated_at as string } : null;
+  },
+  async save(state) {
+    const client = requireSupabase();
+    const { data: session } = await client.auth.getSession();
+    const userId = session.session?.user.id;
+    if (!userId) {
+      throw new Error('Sign in to save your plan to your account.');
+    }
+    const updatedAt = new Date().toISOString();
+    const { error } = await client
+      .from('user_app_state')
+      .upsert({ user_id: userId, state, updated_at: updatedAt }, { onConflict: 'user_id' });
+    if (error) {
+      throw error;
+    }
+    return updatedAt;
   },
 };

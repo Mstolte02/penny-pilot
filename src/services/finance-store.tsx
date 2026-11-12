@@ -9,19 +9,21 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import { AppState } from 'react-native';
+import { router } from 'expo-router';
+import { Alert, AppState, Platform } from 'react-native';
 
+import { BUDGET_STYLE_KEY, SETUP_COMPLETE_KEY, WIZARD_STATE_KEY } from '@/constants/penny-voice';
 import { mobileBudgetPlan } from '@/data/personal-finance-template';
 import {
   avgForecast,
   ewmaForecast,
-  uniqueMonths,
+  forecastMonths,
   monthKey,
   type BudgetPlan,
   type MobileTransaction,
 } from '@/domain/mobile-finance';
 import { env } from '@/config/env';
-import { authService, bankSyncService } from '@/services';
+import { appStateService, authService, bankSyncService } from '@/services';
 import { buildBankTransactions, type CategorySource } from '@/services/bank-feed';
 
 /**
@@ -39,6 +41,8 @@ export type StoredTransaction = MobileTransaction & {
   source: TransactionSource;
   /** Bank rows only: where the category came from ("user" survives every re-sync). */
   categorySource?: CategorySource;
+  /** Bank rows only: the charge has not posted yet. */
+  pending?: boolean;
 };
 
 export type BankSyncState = {
@@ -48,6 +52,8 @@ export type BankSyncState = {
 };
 
 const BANK_LAST_SYNC_KEY = 'penny:bankLastSync';
+/** Set while a new bank is connected but its history has not arrived yet. */
+const PLAN_WAITING_FOR_HISTORY_KEY = 'penny:planWaitingForHistory';
 /** Don't hit Plaid more often than this on app open; "Sync now" ignores it. */
 const AUTO_SYNC_EVERY_MS = 10 * 60 * 1000;
 
@@ -150,7 +156,7 @@ export function forecastLineAmount(
   method: ForecastMethod,
   transactions: MobileTransaction[]
 ) {
-  const months = uniqueMonths(transactions);
+  const months = forecastMonths(transactions);
   const values = months.map((month) =>
     transactions
       .filter(
@@ -217,6 +223,125 @@ function seedGoals(transactions: MobileTransaction[]): GoalPlan[] {
 
 function seedPlannedExpenses(): PlannedExpensePlan[] {
   return [];
+}
+
+// ---- Saved-to-account helpers ---------------------------------------------------------
+
+/** Whose data is on this phone. A different user signing in never sees it. */
+const DATA_OWNER_KEY = 'penny:dataOwner';
+/** When this phone last saved to the account; compared with the server's copy. */
+const CLOUD_SAVED_AT_KEY = 'penny:cloudSavedAt';
+const CLOUD_SAVE_DELAY_MS = 3000;
+
+/** Everything on the phone that belongs to one user, cleared on sign-out. */
+const PER_USER_KEYS = [
+  DATA_OWNER_KEY,
+  CLOUD_SAVED_AT_KEY,
+  BANK_LAST_SYNC_KEY,
+  PLAN_WAITING_FOR_HISTORY_KEY,
+  SETUP_COMPLETE_KEY,
+  BUDGET_STYLE_KEY,
+  WIZARD_STATE_KEY,
+];
+
+type CloudSnapshot = {
+  version: 1;
+  collections: Partial<Collections>;
+  prefs: { setupComplete: string | null; budgetStyle: string | null };
+};
+
+function emptyCollections(): Collections {
+  return {
+    transactions: [],
+    planLines: [],
+    adjustments: {},
+    goals: [],
+    plannedExpenses: [],
+    cancelFlags: {},
+    transactionEdits: {},
+    resolvedReviewIds: [],
+  };
+}
+
+function seedCollections(): Collections {
+  const transactions = seedTransactions();
+  return {
+    ...emptyCollections(),
+    transactions,
+    planLines: seedPlanLines(transactions),
+    goals: seedGoals(transactions),
+    plannedExpenses: seedPlannedExpenses(),
+  };
+}
+
+async function buildSnapshot(collections: Collections): Promise<CloudSnapshot> {
+  const [setupComplete, budgetStyle] = await Promise.all([
+    AsyncStorage.getItem(SETUP_COMPLETE_KEY).catch(() => null),
+    AsyncStorage.getItem(BUDGET_STYLE_KEY).catch(() => null),
+  ]);
+  return {
+    version: 1,
+    collections: {
+      ...collections,
+      // Bank rows come back from the server on every sync. Keep only the user's own
+      // categories for them, which exist nowhere else.
+      transactions: collections.transactions.filter(
+        (transaction) => transaction.source !== 'bank' || transaction.categorySource === 'user'
+      ),
+    },
+    prefs: { setupComplete, budgetStyle },
+  };
+}
+
+function parseSnapshot(value: unknown): CloudSnapshot | null {
+  if (!value || typeof value !== 'object') return null;
+  const snapshot = value as Partial<CloudSnapshot>;
+  if (snapshot.version !== 1 || !snapshot.collections || typeof snapshot.collections !== 'object') return null;
+  return {
+    version: 1,
+    collections: snapshot.collections,
+    prefs: snapshot.prefs ?? { setupComplete: null, budgetStyle: null },
+  };
+}
+
+async function restorePrefs(prefs: CloudSnapshot['prefs']) {
+  const writes: Promise<void>[] = [];
+  if (prefs.setupComplete) writes.push(AsyncStorage.setItem(SETUP_COMPLETE_KEY, prefs.setupComplete));
+  if (prefs.budgetStyle) writes.push(AsyncStorage.setItem(BUDGET_STYLE_KEY, prefs.budgetStyle));
+  await Promise.all(writes).catch(() => undefined);
+}
+
+/** True when the phone holds something the user made, not just first-run seeds. */
+async function hasUserData(collections: Collections) {
+  const setupComplete = await AsyncStorage.getItem(SETUP_COMPLETE_KEY).catch(() => null);
+  return Boolean(
+    setupComplete ||
+      collections.goals.length > 0 ||
+      collections.plannedExpenses.length > 0 ||
+      collections.planLines.some((line) => line.amount !== 0) ||
+      collections.transactions.some(
+        (transaction) =>
+          (transaction.source !== 'bank' && transaction.source !== 'sample') ||
+          transaction.categorySource === 'user'
+      )
+  );
+}
+
+/** This phone has its own plan and the account has another. Only the user can choose. */
+function askRestoreOrKeep(savedAt: string): Promise<'restore' | 'push'> {
+  if (Platform.OS === 'web') return Promise.resolve('push');
+  const when = new Date(savedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+  return new Promise((resolve) => {
+    Alert.alert(
+      'Use your saved plan?',
+      `Your account has a plan saved on ${when}. This phone has a different one. Which should Penny keep?`,
+      [
+        { text: 'Keep this phone’s', onPress: () => resolve('push') },
+        { text: 'Use saved plan', onPress: () => resolve('restore') },
+      ],
+      { cancelable: false }
+    );
+  });
 }
 
 type Updater<T> = T | ((previous: T) => T);
@@ -358,7 +483,11 @@ type FinanceStore = {
   guessCategory: (item: string) => { category: string; subcategory: string | null } | null;
   /** Connected banks: sync state, and a manual "Sync now". */
   bankSync: BankSyncState;
-  refreshBank: (options?: { sync?: boolean }) => Promise<void>;
+  refreshBank: (options?: { sync?: boolean; fillEmptyLines?: boolean }) => Promise<void>;
+  /** Saves to the account, signs out, and clears this user's data from the phone. */
+  signOutAndClear: (options?: { skipSave?: boolean }) => Promise<void>;
+  /** Clears this user's data from the phone (after the account itself is deleted). */
+  clearLocal: () => Promise<void>;
   /** Wipes storage and returns the in-memory store to first-run seed data. */
   resetToSeeds: () => Promise<void>;
 };
@@ -383,9 +512,11 @@ export function FinanceProvider({ children }: PropsWithChildren) {
   // The bank merge runs async, so it reads the latest plan from a ref, not a stale closure.
   const planLinesRef = useRef<PlanLine[]>([]);
   planLinesRef.current = planLines;
+  const transactionsRef = useRef<StoredTransaction[]>([]);
+  transactionsRef.current = transactions;
   const bankBusy = useRef(false);
 
-  const refreshBank = useCallback(async (options: { sync?: boolean } = {}) => {
+  const refreshBank = useCallback(async (options: { sync?: boolean; fillEmptyLines?: boolean } = {}) => {
     if (env.dataSource !== 'supabase' || bankBusy.current) return;
     bankBusy.current = true;
     try {
@@ -405,17 +536,44 @@ export function FinanceProvider({ children }: PropsWithChildren) {
         }
       }
       const rows = await bankSyncService.listBankFeed();
-      setTransactionsState((previous) => {
-        const merchantChoice = (merchant: string) => choiceForMerchant(previous, merchant);
-        const bankRows = buildBankTransactions(rows, previous, planLinesRef.current, merchantChoice);
-        const next = [...previous.filter((transaction) => transaction.source !== 'bank'), ...bankRows];
-        persistCollection('transactions', next);
-        return next;
-      });
+      const previous = transactionsRef.current;
+      const merchantChoice = (merchant: string) => choiceForMerchant(previous, merchant);
+      const bankRows = buildBankTransactions(rows, previous, planLinesRef.current, merchantChoice);
+      const next = [...previous.filter((transaction) => transaction.source !== 'bank'), ...bankRows];
+      transactionsRef.current = next;
+      setTransactionsState(next);
+      persistCollection('transactions', next);
+      // A new bank brings the history the plan was missing. Flexible lines still at $0
+      // (the wizard ran before the data came in) take their amount from that history.
+      // This runs right after a link, and on later opens until the history has arrived;
+      // after that, a $0 line is the user's own choice and stays.
+      const waitingForHistory =
+        options.fillEmptyLines ||
+        (await AsyncStorage.getItem(PLAN_WAITING_FOR_HISTORY_KEY).catch(() => null)) === '1';
+      if (waitingForHistory) {
+        const hasHistory = bankRows.some((transaction) => transaction.type === 'expense');
+        const filled = planLinesRef.current.map((line) =>
+          line.type === 'flexible' && line.amount === 0
+            ? { ...line, amount: forecastLineAmount(line, line.method, next) }
+            : line
+        );
+        if (filled.some((line, index) => line.amount !== planLinesRef.current[index].amount)) {
+          planLinesRef.current = filled;
+          setPlanLinesState(filled);
+          persistCollection('planLines', filled);
+        }
+        await (hasHistory
+          ? AsyncStorage.removeItem(PLAN_WAITING_FOR_HISTORY_KEY)
+          : AsyncStorage.setItem(PLAN_WAITING_FOR_HISTORY_KEY, '1')
+        ).catch(() => undefined);
+      }
       // Review now happens on the phone; empty the old server queue so nothing shows twice.
       await bankSyncService.clearServerReviewQueue().catch(() => undefined);
       const syncedAt = new Date().toISOString();
-      if (!syncNote) await AsyncStorage.setItem(BANK_LAST_SYNC_KEY, syncedAt).catch(() => undefined);
+      // Only a real Plaid sync resets the 10-minute clock; a read of the server feed does not.
+      if (!syncNote && options.sync) {
+        await AsyncStorage.setItem(BANK_LAST_SYNC_KEY, syncedAt).catch(() => undefined);
+      }
       setBankSync({
         status: syncNote ? 'error' : 'done',
         lastSyncedAt: syncNote ? null : syncedAt,
@@ -446,6 +604,187 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     });
     return () => subscription.remove();
   }, [ready, refreshBank]);
+
+  // ---- Saved to the account -------------------------------------------------------------
+  // The plan, goals, categories and imports are saved to the signed-in user's account, so a
+  // reinstall or a new phone gets them back. Local storage stays the working copy.
+
+  const latest = useRef<Collections>({
+    transactions: [],
+    planLines: [],
+    adjustments: {},
+    goals: [],
+    plannedExpenses: [],
+    cancelFlags: {},
+    transactionEdits: {},
+    resolvedReviewIds: [],
+  });
+  latest.current = {
+    transactions,
+    planLines,
+    adjustments,
+    goals,
+    plannedExpenses,
+    cancelFlags,
+    transactionEdits,
+    resolvedReviewIds,
+  };
+  /** The user whose data is on screen now. Saving starts only once this is set. */
+  const cloudUser = useRef<string | null>(null);
+  const cloudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPushed = useRef<string | null>(null);
+
+  const applyCollections = useCallback((collections: Partial<Collections>) => {
+    const next = { ...emptyCollections(), ...collections };
+    // Bank rows come back on the next sync; only the ones the user categorized are saved.
+    latest.current = next;
+    transactionsRef.current = next.transactions;
+    planLinesRef.current = next.planLines;
+    setTransactionsState(next.transactions);
+    setPlanLinesState(next.planLines);
+    setAdjustmentsState(next.adjustments);
+    setGoalsState(next.goals);
+    setPlannedExpensesState(next.plannedExpenses);
+    setCancelFlagsState(next.cancelFlags);
+    setTransactionEditsState(next.transactionEdits);
+    setResolvedReviewIdsState(next.resolvedReviewIds);
+    for (const key of COLLECTION_KEYS) persistCollection(key, next[key] as never);
+  }, []);
+
+  const pushToCloud = useCallback(async () => {
+    if (cloudTimer.current) {
+      clearTimeout(cloudTimer.current);
+      cloudTimer.current = null;
+    }
+    if (!cloudUser.current) return;
+    const snapshot = await buildSnapshot(latest.current);
+    const body = JSON.stringify(snapshot);
+    if (body === lastPushed.current) return;
+    const savedAt = await appStateService.save(snapshot);
+    lastPushed.current = body;
+    await AsyncStorage.setItem(CLOUD_SAVED_AT_KEY, savedAt).catch(() => undefined);
+  }, []);
+
+  /** Lines up local data with the account when a user signs in (or opens the app signed in). */
+  const reconcileWithCloud = useCallback(
+    async (userId: string) => {
+      const owner = await AsyncStorage.getItem(DATA_OWNER_KEY).catch(() => null);
+      if (owner && owner !== userId) {
+        // Someone else's data is still on this phone. Never show it, never save it here.
+        applyCollections(seedCollections());
+        await AsyncStorage.multiRemove(PER_USER_KEYS).catch(() => undefined);
+      }
+      const remote = await appStateService.load();
+      const localSavedAt = await AsyncStorage.getItem(CLOUD_SAVED_AT_KEY).catch(() => null);
+      const localHasData = await hasUserData(latest.current);
+
+      const restore = async (snapshot: CloudSnapshot, savedAt: string) => {
+        applyCollections(snapshot.collections ?? {});
+        await restorePrefs(snapshot.prefs);
+        lastPushed.current = JSON.stringify(snapshot);
+        await AsyncStorage.setItem(CLOUD_SAVED_AT_KEY, savedAt).catch(() => undefined);
+        // The wizard may be on screen because this phone looked new. Go to the restored plan.
+        if (snapshot.prefs?.setupComplete) router.navigate('/');
+      };
+
+      const remoteSnapshot = remote ? parseSnapshot(remote.state) : null;
+      let choice: 'restore' | 'push' = 'push';
+      if (remote && remoteSnapshot) {
+        if (!localHasData) {
+          choice = 'restore';
+        } else if (owner === userId) {
+          // This phone has saved for this user before: the newer copy wins.
+          choice = !localSavedAt || remote.updatedAt > localSavedAt ? 'restore' : 'push';
+        } else {
+          choice = await askRestoreOrKeep(remote.updatedAt);
+        }
+      }
+
+      await AsyncStorage.setItem(DATA_OWNER_KEY, userId).catch(() => undefined);
+      cloudUser.current = userId;
+      if (choice === 'restore' && remote && remoteSnapshot) {
+        await restore(remoteSnapshot, remote.updatedAt);
+      } else if (localHasData) {
+        await pushToCloud();
+      }
+    },
+    [applyCollections, pushToCloud]
+  );
+
+  useEffect(() => {
+    if (!ready || env.dataSource !== 'supabase') return;
+    let cancelled = false;
+    const start = (userId: string | null) => {
+      if (cancelled) return;
+      if (!userId) {
+        cloudUser.current = null;
+        return;
+      }
+      if (cloudUser.current === userId) return;
+      reconcileWithCloud(userId).catch(() => {
+        // Offline or the server is down: keep working locally and try again next time.
+        cloudUser.current = null;
+      });
+    };
+    appStateService.currentUserId().then(start).catch(() => undefined);
+    const unsubscribe = appStateService.onAuthChange(start);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [ready, reconcileWithCloud]);
+
+  // Save a few seconds after the last change, so a burst of edits is one write.
+  useEffect(() => {
+    if (!ready || !cloudUser.current) return;
+    if (cloudTimer.current) clearTimeout(cloudTimer.current);
+    cloudTimer.current = setTimeout(() => {
+      pushToCloud().catch(() => undefined);
+    }, CLOUD_SAVE_DELAY_MS);
+  }, [
+    ready,
+    pushToCloud,
+    transactions,
+    planLines,
+    adjustments,
+    goals,
+    plannedExpenses,
+    cancelFlags,
+    transactionEdits,
+    resolvedReviewIds,
+  ]);
+
+  // Save right away when the app goes to the background; it may not come back.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') pushToCloud().catch(() => undefined);
+    });
+    return () => subscription.remove();
+  }, [pushToCloud]);
+
+  const clearLocal = useCallback(async () => {
+    cloudUser.current = null;
+    await clearFinanceData();
+    await AsyncStorage.multiRemove(PER_USER_KEYS).catch(() => undefined);
+    lastPushed.current = null;
+    applyCollections(seedCollections());
+  }, [applyCollections]);
+
+  const signOutAndClear = useCallback(
+    async (options: { skipSave?: boolean } = {}) => {
+      if (!options.skipSave) {
+        // Never lined up with the account (offline since sign-in): nothing has been saved yet.
+        if (!cloudUser.current && (await hasUserData(latest.current))) {
+          throw new Error('Your plan has not been saved to your account yet.');
+        }
+        await pushToCloud();
+      }
+      cloudUser.current = null;
+      await authService.signOut();
+      await clearLocal();
+    },
+    [clearLocal, pushToCloud]
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -606,6 +945,8 @@ export function FinanceProvider({ children }: PropsWithChildren) {
         setResolvedReviewIdsState([]);
       },
       bankSync,
+      signOutAndClear,
+      clearLocal,
       refreshBank,
       guessCategory: (item) => {
         const normalized = item.trim().toLowerCase();
@@ -652,6 +993,8 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     resolvedReviewIds,
     bankSync,
     refreshBank,
+    signOutAndClear,
+    clearLocal,
   ]);
 
   if (!ready) return null;

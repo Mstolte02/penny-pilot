@@ -35,11 +35,12 @@ import { mobileSavingsConfig } from '@/data/personal-finance-template';
 import type { BudgetStyle } from '@/domain/finance';
 import {
   avgForecast,
+  forecastMonths,
   formatMoney,
   formatMonth,
   monthKey,
   projectSavings,
-  uniqueMonths,
+  todayLocal,
 } from '@/domain/mobile-finance';
 import { useTheme } from '@/hooks/use-theme';
 import {
@@ -268,14 +269,13 @@ export default function PlanScreen() {
   }, [lines, adjustments, transactions]);
 
   const monthlyIncome = useMemo(() => {
-    const incomeByMonth = new Map<string, number>();
-    for (const transaction of transactions) {
-      if (transaction.type !== 'income') continue;
-      const key = monthKey(transaction.date);
-      incomeByMonth.set(key, (incomeByMonth.get(key) ?? 0) + transaction.moneyIn);
-    }
-    if (incomeByMonth.size === 0) return 0;
-    return Array.from(incomeByMonth.values()).reduce((sum, value) => sum + value, 0) / incomeByMonth.size;
+    // Full months only: a partial first or current month would drag the average down.
+    const months = new Set(forecastMonths(transactions));
+    if (months.size === 0) return 0;
+    const total = transactions
+      .filter((transaction) => transaction.type === 'income' && months.has(monthKey(transaction.date)))
+      .reduce((sum, transaction) => sum + transaction.moneyIn, 0);
+    return total / months.size;
   }, [transactions]);
   const totalCapacity = sections.reduce((sum, section) => sum + section.capacity, 0);
   const savingsTarget = monthlyIncome - totalCapacity;
@@ -417,8 +417,8 @@ export default function PlanScreen() {
       name: goalToEdit?.name ?? '',
       target: goalToEdit ? String(goalToEdit.target) : '',
       current: goalToEdit ? String(goalToEdit.current) : '',
-      monthlyTarget: goalToEdit ? String(goalToEdit.monthlyTarget) : String(mobileSavingsConfig.monthlySavingsTarget),
-      targetDate: goalToEdit?.targetDate ?? monthInputAfter(mobileSavingsConfig.asOfDate, 18),
+      monthlyTarget: goalToEdit ? String(goalToEdit.monthlyTarget) : '',
+      targetDate: goalToEdit?.targetDate ?? monthInputAfter(todayLocal(), 18),
       mode: goalToEdit?.mode ?? 'track',
     });
   };
@@ -448,7 +448,7 @@ export default function PlanScreen() {
     setExpenseEditor({
       id: expense?.id,
       name: expense?.name ?? '',
-      date: expense?.date ?? monthInputAfter(mobileSavingsConfig.asOfDate, 6),
+      date: expense?.date ?? monthInputAfter(todayLocal(), 6),
       amount: expense ? String(expense.amount) : '',
     });
   };
@@ -473,7 +473,7 @@ export default function PlanScreen() {
   const selectedGoal = goals.find((entry) => entry.id === selectedGoalId) ?? goals[0];
 
   const projection = useMemo(() => {
-    const values = uniqueMonths(transactions).map((m) =>
+    const values = forecastMonths(transactions).map((m) =>
       transactions
         .filter((transaction) => monthKey(transaction.date) === m)
         .reduce(
@@ -494,11 +494,12 @@ export default function PlanScreen() {
       description: expense.name,
       amount: expense.amount,
     }));
+    // With no goal yet, start from zero today. Never from someone else's balance.
     const points = projectSavings({
-      startBalance: savingsGoal?.current ?? mobileSavingsConfig.currentSavings,
-      startDate: mobileSavingsConfig.asOfDate,
+      startBalance: savingsGoal?.current ?? 0,
+      startDate: todayLocal(),
       months: horizon,
-      budgetedMonthly: savingsGoal?.monthlyTarget ?? mobileSavingsConfig.monthlySavingsTarget,
+      budgetedMonthly: savingsGoal?.monthlyTarget ?? Math.max(0, Math.round(actualPace)),
       actualMonthly: actualPace,
       plannedExpenses: plannedForProjection,
       recurringExpenses: mobileSavingsConfig.recurringExpenses,
@@ -520,7 +521,7 @@ export default function PlanScreen() {
     const progress = target > 0 ? Math.min(current / target, 1) : 0;
     const actualIndex = projection.points.findIndex((point) => point.actual >= target);
     const budgetedIndex = projection.points.findIndex((point) => point.budgeted >= target);
-    const startMonth = projection.points[0]?.month ?? mobileSavingsConfig.asOfDate.slice(0, 7);
+    const startMonth = projection.points[0]?.month ?? todayLocal().slice(0, 7);
     const actualMonth = actualIndex >= 0 ? projection.points[actualIndex]?.month : null;
     const budgetedMonth = budgetedIndex >= 0 ? projection.points[budgetedIndex]?.month : null;
     const deadlineIndex = selectedGoal?.targetDate
@@ -1086,7 +1087,15 @@ export default function PlanScreen() {
         line={methodLine}
         onClose={() => setMethodLineId(null)}
         onPick={(method) => {
-          if (methodLine) updateLine(methodLine.id, { method });
+          // A flexible line takes the new method's amount; a fixed bill keeps the amount the user set.
+          if (methodLine) {
+            updateLine(
+              methodLine.id,
+              methodLine.type === 'flexible'
+                ? { method, amount: forecastFor(methodLine, method) }
+                : { method }
+            );
+          }
           setMethodLineId(null);
         }}
         preview={(method) => (methodLine ? forecastFor(methodLine, method) : 0)}

@@ -1,5 +1,5 @@
 import { handleOptions, jsonResponse } from '../_shared/cors.ts';
-import { decryptAccessToken, plaidFetch } from '../_shared/plaid.ts';
+import { removePlaidItem } from '../_shared/plaid.ts';
 import { getAuthenticatedClient, getServiceRoleClient } from '../_shared/supabase.ts';
 
 // Permanent account deletion (privacy/data-deletion right + Plaid remediation:
@@ -13,6 +13,7 @@ import { getAuthenticatedClient, getServiceRoleClient } from '../_shared/supabas
 type StoredItem = {
   plaid_item_id: string;
   access_token_ciphertext: string;
+  institution_name: string | null;
 };
 
 Deno.serve(async (req) => {
@@ -22,21 +23,23 @@ Deno.serve(async (req) => {
   try {
     const { client, user } = await getAuthenticatedClient(req);
 
-    // Best-effort: revoke each Plaid Item so the access token is dead at Plaid's
-    // side even if the row is about to be cascade-deleted anyway.
-    const { data: items } = await client
+    // Revoke every Plaid Item before anything is deleted. If a revoke fails, stop: the
+    // cascade would drop the only copy of the token, and the bank connection would stay
+    // live at Plaid with no way to end it. The user can try again in a moment.
+    const { data: items, error: itemsError } = await client
       .from('plaid_items')
-      .select('plaid_item_id, access_token_ciphertext')
+      .select('plaid_item_id, access_token_ciphertext, institution_name')
       .eq('user_id', user.id);
+    if (itemsError) throw itemsError;
 
     for (const item of (items ?? []) as StoredItem[]) {
       try {
-        const accessToken = await decryptAccessToken(item.access_token_ciphertext);
-        await plaidFetch('/item/remove', { access_token: accessToken });
+        await removePlaidItem(item.access_token_ciphertext);
       } catch (revokeError) {
-        // Don't let a single failed revoke block the deletion the user asked for;
-        // the token is scoped to this app and the row is removed regardless.
         console.error('Plaid item revoke failed during account deletion', revokeError);
+        throw new Error(
+          `Could not disconnect ${item.institution_name ?? 'one of your banks'} just now, so nothing was deleted. Try again in a minute.`
+        );
       }
     }
 

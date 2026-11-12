@@ -68,7 +68,8 @@ export default function OverviewScreen() {
     let mounted = true;
     AsyncStorage.getItem(SETUP_COMPLETE_KEY)
       .then((value) => {
-        if (mounted && !value) router.replace('/setup');
+        // navigate, not replace: inside the tab navigator replace() is a silent no-op.
+        if (mounted && !value) router.navigate('/setup');
       })
       .catch(() => {});
     return () => {

@@ -1,5 +1,6 @@
 import { env } from '@/config/env';
 import {
+  mockAppStateService,
   mockAuthService,
   mockBankSyncService,
   mockCategorizationService,
@@ -8,6 +9,7 @@ import {
   mockForecastService,
 } from '@/services/mock-finance-service';
 import {
+  supabaseAppStateService,
   supabaseAuthService,
   supabaseBankSyncService,
   supabaseCategorizationService,
@@ -28,3 +30,4 @@ export const categorizationService = useSupabase
   ? supabaseCategorizationService
   : mockCategorizationService;
 export const forecastService = useSupabase ? supabaseForecastService : mockForecastService;
+export const appStateService = useSupabase ? supabaseAppStateService : mockAppStateService;

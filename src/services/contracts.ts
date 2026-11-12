@@ -44,8 +44,14 @@ export interface ConsentService {
 }
 
 export interface BankSyncService {
-  createLinkToken(): Promise<{ linkToken: string }>;
-  exchangePublicToken(publicToken: string): Promise<BankInstitution>;
+  /** A new connection, or with itemId, update mode to repair one that needs a re-login. */
+  createLinkToken(options?: { itemId?: Id }): Promise<{ linkToken: string }>;
+  /** `duplicate` means this bank was already connected; the new link was dropped. */
+  exchangePublicToken(publicToken: string): Promise<BankInstitution & { duplicate?: boolean }>;
+  /** Every bank this user has connected, with its health. */
+  listInstitutions(): Promise<BankInstitution[]>;
+  /** Revokes the bank at Plaid, then deletes it with its accounts and transactions. */
+  removeInstitution(institutionId: Id): Promise<void>;
   syncTransactions(institutionId: Id): Promise<{ added: number; modified: number; removed: number }>;
   listAccounts(): Promise<BankAccount[]>;
   /** Pulls new transactions for every connected bank. */
@@ -89,4 +95,15 @@ export interface CategorizationService {
 export interface ForecastService {
   createGoalForecast(goalId: Id): Promise<ForecastSnapshot>;
   chooseBestModel(subjectId: Id): Promise<ForecastSnapshot['model']>;
+}
+
+/** The user's plan, goals and categories, saved to their account (one JSON snapshot). */
+export interface AppStateService {
+  /** The signed-in user's id from the saved session, or null. No network call. */
+  currentUserId(): Promise<string | null>;
+  /** Calls back with the user id on every sign-in and sign-out. Returns an unsubscribe. */
+  onAuthChange(callback: (userId: string | null) => void): () => void;
+  load(): Promise<{ state: unknown; updatedAt: string } | null>;
+  /** Saves the snapshot and returns the server's timestamp for it. */
+  save(state: unknown): Promise<string>;
 }

@@ -11,6 +11,8 @@ import type { PlanLine, StoredTransaction } from '@/services/finance-store';
  *   4. Plaid's personal finance category, mapped onto a budget line by name,
  *   5. otherwise "Uncategorized", which puts it on the review radar.
  * Transfers between the user's own accounts and card payments never count as spending.
+ * Person-to-person payments and ATM cash skip steps 2 to 4 and always go on the radar.
+ * Money back under a spending category is a refund and lowers that category's spend.
  */
 
 export type BankFeedRow = {
@@ -114,6 +116,11 @@ const PRIMARY_HINTS: Record<string, { lines: string[]; sections: string[] }> = {
 };
 
 const TRANSFER_PRIMARIES = new Set(['TRANSFER_IN', 'TRANSFER_OUT', 'BANK_FEES_TRANSFER']);
+/**
+ * Only money between the user's own accounts (and loan money coming in) is a transfer.
+ * Venmo, Zelle, Cash App and ATM cash are TRANSFER_OUT to Plaid, but they pay for rent,
+ * dinner and the like, so they stay spending and go on the review radar.
+ */
 const TRANSFER_DETAILED = new Set([
   'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
   'TRANSFER_IN_ACCOUNT_TRANSFER',
@@ -122,7 +129,10 @@ const TRANSFER_DETAILED = new Set([
   'TRANSFER_OUT_SAVINGS',
   'TRANSFER_IN_INVESTMENT_AND_RETIREMENT_FUNDS',
   'TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS',
+  'TRANSFER_IN_CASH_ADVANCES_AND_LOANS',
 ]);
+/** Person-to-person payments and cash: one merchant, many purposes. Always ask. */
+const ASK_EACH_TIME_DETAILED = new Set(['TRANSFER_OUT_OTHER_TRANSFER_OUT', 'TRANSFER_OUT_WITHDRAWAL']);
 
 const lower = (value: string) => value.toLowerCase();
 
@@ -176,12 +186,20 @@ function lineForServerCategory(
 }
 
 export function isTransferRow(row: BankFeedRow) {
+  // Plaid's detailed category is the best signal. Older server rows flagged every
+  // TRANSFER_* as excluded, so that flag only counts when there is no detailed category.
+  if (row.pfcDetailed) return TRANSFER_DETAILED.has(row.pfcDetailed);
   return (
     row.kind === 'transfer' ||
     row.excludedFromBudget ||
-    (row.pfcDetailed !== null && TRANSFER_DETAILED.has(row.pfcDetailed)) ||
     (row.pfcPrimary !== null && TRANSFER_PRIMARIES.has(row.pfcPrimary))
   );
+}
+
+/** Money in that is real income. Money in under a spending category is a refund. */
+function isIncomeRow(row: BankFeedRow) {
+  if (row.kind !== 'income') return false;
+  return !row.pfcPrimary || row.pfcPrimary === 'INCOME' || row.pfcPrimary === 'TRANSFER_IN';
 }
 
 /**
@@ -201,62 +219,66 @@ export function buildBankTransactions(
       .map((transaction) => [transaction.id, transaction as BankTransaction])
   );
 
-  return rows
-    .filter((row) => !row.pending)
-    .map((row) => {
-      const id = `${BANK_ID_PREFIX}${row.id}`;
-      const kept = previous.get(id);
-      const keptByUser = kept?.categorySource === 'user';
-      // The user's call on transfer / income / spending wins over Plaid's.
-      const transfer = keptByUser ? kept.type === 'transfer' : isTransferRow(row);
-      const income = keptByUser ? kept.type === 'income' : !transfer && row.kind === 'income';
-      const type = transfer ? 'transfer' : income ? 'income' : 'expense';
-      const amount = Math.abs(row.amount);
+  // Pending charges count: leaving them out made safe-to-spend too high until they posted.
+  // When a charge posts, Plaid removes the pending row in the same sync, so nothing doubles.
+  return rows.map((row) => {
+    const id = `${BANK_ID_PREFIX}${row.id}`;
+    const kept = previous.get(id);
+    const keptByUser = kept?.categorySource === 'user';
+    // The user's call on transfer / income / spending wins over Plaid's.
+    const transfer = keptByUser ? kept.type === 'transfer' : isTransferRow(row);
+    const income = keptByUser ? kept.type === 'income' : !transfer && isIncomeRow(row);
+    const type = transfer ? 'transfer' : income ? 'income' : 'expense';
+    const amount = Math.abs(row.amount);
+    const askEachTime = row.pfcDetailed !== null && ASK_EACH_TIME_DETAILED.has(row.pfcDetailed);
 
-      let choice: Choice = { category: 'Uncategorized', subcategory: null };
-      let categorySource: CategorySource = 'none';
+    let choice: Choice = { category: 'Uncategorized', subcategory: null };
+    let categorySource: CategorySource = 'none';
 
-      if (keptByUser) {
-        choice = { category: kept.category, subcategory: kept.subcategory };
-        categorySource = 'user';
-      } else if (transfer) {
-        choice = { category: 'Transfers', subcategory: 'Transfers' };
+    if (keptByUser) {
+      choice = { category: kept.category, subcategory: kept.subcategory };
+      categorySource = 'user';
+    } else if (transfer) {
+      choice = { category: 'Transfers', subcategory: 'Transfers' };
+      categorySource = 'plaid';
+    } else if (income) {
+      choice = { category: 'Income', subcategory: null };
+      categorySource = 'plaid';
+    } else if (!askEachTime) {
+      const server = lineForServerCategory(row.serverCategory, row.serverSubcategory, planLines);
+      const history = server ? null : merchantChoice(row.merchantName);
+      const plaid =
+        server || history ? null : lineForPlaidCategory(row.pfcDetailed, row.pfcPrimary, planLines);
+      if (server) {
+        choice = server;
+        categorySource = 'server';
+      } else if (history) {
+        choice = history;
+        categorySource = 'history';
+      } else if (plaid) {
+        choice = plaid;
         categorySource = 'plaid';
-      } else if (income) {
-        choice = { category: 'Income', subcategory: null };
-        categorySource = 'plaid';
-      } else {
-        const server = lineForServerCategory(row.serverCategory, row.serverSubcategory, planLines);
-        const history = server ? null : merchantChoice(row.merchantName);
-        const plaid =
-          server || history ? null : lineForPlaidCategory(row.pfcDetailed, row.pfcPrimary, planLines);
-        if (server) {
-          choice = server;
-          categorySource = 'server';
-        } else if (history) {
-          choice = history;
-          categorySource = 'history';
-        } else if (plaid) {
-          choice = plaid;
-          categorySource = 'plaid';
-        }
       }
+    }
 
-      // Direction comes from the server's sign-based kind, so a transfer keeps it too.
-      const outflow = row.kind !== 'income';
+    // Direction comes from the server's sign-based kind, so a transfer keeps it too.
+    const outflow = row.kind !== 'income';
+    // A refund is spending in reverse: it lowers its category's spend, not raises income.
+    const refund = type === 'expense' && !outflow;
 
-      return {
-        id,
-        date: row.date,
-        item: row.merchantName || row.originalDescription,
-        moneyIn: outflow ? 0 : amount,
-        moneyOut: outflow ? amount : 0,
-        amount: outflow ? -amount : amount,
-        category: choice.category,
-        subcategory: choice.subcategory,
-        type,
-        source: 'bank' as const,
-        categorySource,
-      };
-    });
+    return {
+      id,
+      date: row.date,
+      item: row.merchantName || row.originalDescription,
+      moneyIn: outflow || refund ? 0 : amount,
+      moneyOut: refund ? -amount : outflow ? amount : 0,
+      amount: outflow ? -amount : amount,
+      category: choice.category,
+      subcategory: choice.subcategory,
+      type,
+      source: 'bank' as const,
+      categorySource,
+      pending: row.pending || undefined,
+    };
+  });
 }

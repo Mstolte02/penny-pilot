@@ -17,7 +17,7 @@ import {
 } from '@/components/penny-ui';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
-import { formatMoney, monthKey, safeToSpendToday, uniqueMonths } from '@/domain/mobile-finance';
+import { formatMoney, monthKey, safeToSpendToday, todayLocal, uniqueMonths } from '@/domain/mobile-finance';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { planFromLines, useFinance } from '@/services/finance-store';
@@ -53,13 +53,13 @@ function rankFor(xp: number) {
 }
 
 async function bumpDailyStreak(): Promise<number> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   try {
     const raw = await AsyncStorage.getItem(STREAK_KEY);
     const stored = raw ? (JSON.parse(raw) as { lastDay: string; count: number }) : null;
     if (stored?.lastDay === today) return stored.count;
 
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const yesterday = todayLocal(new Date(Date.now() - 86400000));
     const count = stored?.lastDay === yesterday ? stored.count + 1 : 1;
     await AsyncStorage.setItem(STREAK_KEY, JSON.stringify({ lastDay: today, count }));
     return count;

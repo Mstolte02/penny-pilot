@@ -18,6 +18,7 @@ import type {
   UserProfile,
 } from '@/domain/finance';
 import type {
+  AppStateService,
   AuthService,
   BankSyncService,
   CategorizationService,
@@ -182,6 +183,10 @@ export const mockBankSyncService: BankSyncService = {
     return [];
   },
   async clearServerReviewQueue() {},
+  async listInstitutions() {
+    return [];
+  },
+  async removeInstitution() {},
   async listAccounts(): Promise<BankAccount[]> {
     return [
       {
@@ -297,5 +302,20 @@ export const mockForecastService: ForecastService = {
   },
   async chooseBestModel() {
     return 'simple-moving-average';
+  },
+};
+
+export const mockAppStateService: AppStateService = {
+  async currentUserId() {
+    return null;
+  },
+  onAuthChange() {
+    return () => undefined;
+  },
+  async load() {
+    return null;
+  },
+  async save() {
+    return new Date().toISOString();
   },
 };
